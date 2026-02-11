@@ -607,20 +607,6 @@ All endpoints are under `/api/v1/`. Interactive documentation at `http://localho
 
 ---
 
-## Roadmap
-
-- [ ] PostgreSQL support for production-grade concurrency
-- [ ] Authentication and role-based access control
-- [ ] Horizontal worker scaling with GPU-aware task routing
-- [ ] Streaming LLM responses for real-time pair preview
-- [ ] RLHF-style feedback loop — route expert corrections back into prompt tuning
-- [ ] Multi-language medical Q&A generation (supported embedding models exist)
-- [ ] PDF table and figure extraction for structured data questions
-- [ ] Automated evaluation against medical benchmarks (MedQA, PubMedQA)
-- [ ] React Error Boundaries and comprehensive frontend test coverage
-- [ ] OpenAPI client generation for typed frontend API calls
-
----
 
 ## Troubleshooting
 
