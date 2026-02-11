@@ -5,6 +5,7 @@
 MedQA Forge ingests medical documents (PDFs, DOCX, PubMed articles), builds a domain-specific vector index using PubMedBERT embeddings and FAISS, then leverages local or cloud LLMs to produce grounded Q&A pairs. Every pair passes through a multi-stage quality pipeline — length, format, medical relevance, semantic deduplication — before landing in a review dashboard where human experts approve, reject, or refine the output. The result is a ready-to-export dataset for fine-tuning medical language models.
 
 ---
+<img width="1918" height="986" alt="image" src="https://github.com/user-attachments/assets/7ffb0c63-ff60-4886-a040-97d845aa1c9a" />
 
 ## Why This Exists
 
