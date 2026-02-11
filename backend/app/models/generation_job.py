@@ -19,6 +19,9 @@ class GenerationJob(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    generation_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    qa_pair_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_files: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     # Relationships

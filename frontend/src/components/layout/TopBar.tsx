@@ -1,12 +1,24 @@
 import { useQuery } from '@tanstack/react-query';
-import { Activity, Wifi, WifiOff } from 'lucide-react';
+import { Activity, Wifi, WifiOff, Sun, Moon, Monitor } from 'lucide-react';
 import { ollamaApi } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { useAppStore } from '@/store';
+import { useAppStore, type Theme } from '@/store';
+
+const THEME_CYCLE: Theme[] = ['light', 'dark', 'system'];
+const THEME_ICON = { light: Sun, dark: Moon, system: Monitor } as const;
+const THEME_LABEL = { light: 'Light', dark: 'Dark', system: 'System' } as const;
 
 export default function TopBar() {
-  const { activeJobs } = useAppStore();
+  const { activeJobs, theme, setTheme } = useAppStore();
+
+  const cycleTheme = () => {
+    const idx = THEME_CYCLE.indexOf(theme);
+    setTheme(THEME_CYCLE[(idx + 1) % THEME_CYCLE.length]);
+  };
+
+  const ThemeIcon = THEME_ICON[theme];
 
   const { data: ollamaStatus } = useQuery({
     queryKey: ['ollama', 'status'],
@@ -47,6 +59,22 @@ export default function TopBar() {
               </TooltipContent>
             </Tooltip>
           )}
+
+          {/* Theme toggle */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={cycleTheme}
+                className="h-8 w-8"
+              >
+                <ThemeIcon className="h-4 w-4" />
+                <span className="sr-only">Toggle theme ({THEME_LABEL[theme]})</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Theme: {THEME_LABEL[theme]}</TooltipContent>
+          </Tooltip>
 
           {/* Ollama connection status */}
           <Tooltip>

@@ -2,8 +2,8 @@
 /*  TanStack Query hooks wrapping the API client                      */
 /* ------------------------------------------------------------------ */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { projectsApi, sourcesApi, generationApi, qaPairsApi, ollamaApi } from '@/lib/api';
-import type { ProjectCreate, ProjectUpdate, QAPairUpdate, ValidationStatus } from '@/types';
+import { projectsApi, sourcesApi, generationApi, qaPairsApi, ollamaApi, reviewApi, llmProvidersApi } from '@/lib/api';
+import type { ProjectCreate, ProjectUpdate, QAPairUpdate, ValidationStatus, LLMProviderCreate, LLMProviderUpdate, ReviewStartRequest, AutoApproveWorkflowRequest } from '@/types';
 import { toast } from '@/hooks/use-toast';
 
 // ---- Projects ----
@@ -11,6 +11,7 @@ export function useProjects() {
   return useQuery({
     queryKey: ['projects'],
     queryFn: projectsApi.list,
+    refetchInterval: 15000, // refresh every 15s on dashboard
   });
 }
 
@@ -143,6 +144,7 @@ export function useQAPairs(
     page_size?: number;
     validation_status?: ValidationStatus | 'all';
     source_type?: string;
+    source_document?: string;
     min_quality_score?: number;
     search?: string;
     sort_by?: string;
@@ -160,6 +162,14 @@ export function useQAPairStats(projectId: string) {
   return useQuery({
     queryKey: ['qa-pairs', projectId, 'stats'],
     queryFn: () => qaPairsApi.stats(projectId),
+    enabled: !!projectId,
+  });
+}
+
+export function useEnhancedAnalytics(projectId: string) {
+  return useQuery({
+    queryKey: ['qa-pairs', projectId, 'analytics'],
+    queryFn: () => qaPairsApi.analytics(projectId),
     enabled: !!projectId,
   });
 }
@@ -182,6 +192,8 @@ export function useBatchUpdateQAPairs(projectId: string) {
       qaPairsApi.batchUpdate(projectId, ids, data),
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['qa-pairs', projectId] });
+      qc.invalidateQueries({ queryKey: ['projects', projectId] });
+      qc.invalidateQueries({ queryKey: ['projects'] });
       toast({ title: `Updated ${result.updated} Q&A pairs` });
     },
   });
@@ -193,6 +205,8 @@ export function useDeleteQAPair(projectId: string) {
     mutationFn: (pairId: string) => qaPairsApi.delete(projectId, pairId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['qa-pairs', projectId] });
+      qc.invalidateQueries({ queryKey: ['projects', projectId] });
+      qc.invalidateQueries({ queryKey: ['projects'] });
     },
   });
 }
@@ -204,5 +218,245 @@ export function useOllamaStatus() {
     queryFn: ollamaApi.status,
     refetchInterval: 30_000,
     retry: false,
+  });
+}
+
+// ---- Generation Providers ----
+export function useGenerationProviders() {
+  return useQuery({
+    queryKey: ['generation', 'providers'],
+    queryFn: generationApi.providers,
+    staleTime: 60_000,
+  });
+}
+
+// ---- LLM Review ----
+export function useReviewProviders() {
+  return useQuery({
+    queryKey: ['review', 'providers'],
+    queryFn: reviewApi.providers,
+  });
+}
+
+export function useReviewQAPairs(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      qa_pair_ids: string[];
+      provider: string;
+      api_key?: string;
+      model?: string;
+      ollama_url?: string;
+    }) => reviewApi.review(projectId, data),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['qa-pairs', projectId] });
+      toast({
+        title: `Review complete`,
+        description: `${result.total_reviewed} pairs reviewed. Avg score: ${result.avg_overall?.toFixed(1) ?? '—'}/10`,
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Review failed', description: err.message, variant: 'destructive' });
+    },
+  });
+}
+
+export function useAutoApprove(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (minOverall: number) => reviewApi.autoApprove(projectId, minOverall),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['qa-pairs', projectId] });
+      qc.invalidateQueries({ queryKey: ['projects', projectId] });
+      qc.invalidateQueries({ queryKey: ['projects'] });
+      toast({ title: result.message });
+    },
+  });
+}
+
+// ---- LLM Providers (API Key Management) ----
+export function useLLMProviders() {
+  return useQuery({
+    queryKey: ['llm-providers'],
+    queryFn: llmProvidersApi.list,
+  });
+}
+
+export function useCreateLLMProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: LLMProviderCreate) => llmProvidersApi.create(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['llm-providers'] });
+      qc.invalidateQueries({ queryKey: ['review', 'providers'] });
+      qc.invalidateQueries({ queryKey: ['generation', 'providers'] });
+      toast({ title: 'API key saved' });
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Failed to save API key', description: err.message, variant: 'destructive' });
+    },
+  });
+}
+
+export function useUpdateLLMProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: LLMProviderUpdate }) =>
+      llmProvidersApi.update(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['llm-providers'] });
+      qc.invalidateQueries({ queryKey: ['review', 'providers'] });
+      qc.invalidateQueries({ queryKey: ['generation', 'providers'] });
+      toast({ title: 'Provider updated' });
+    },
+  });
+}
+
+export function useDeleteLLMProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => llmProvidersApi.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['llm-providers'] });
+      qc.invalidateQueries({ queryKey: ['review', 'providers'] });
+      qc.invalidateQueries({ queryKey: ['generation', 'providers'] });
+      toast({ title: 'API key deleted' });
+    },
+  });
+}
+
+export function useTestLLMProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => llmProvidersApi.test(id),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['llm-providers'] });
+      qc.invalidateQueries({ queryKey: ['review', 'providers'] });
+      qc.invalidateQueries({ queryKey: ['generation', 'providers'] });
+      toast({
+        title: result.success ? 'Connection successful' : 'Connection failed',
+        description: result.message,
+        variant: result.success ? 'default' : 'destructive',
+      });
+    },
+  });
+}
+
+export function useRefreshModels() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
+      llmProvidersApi.refreshModels(id, force),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['llm-providers'] });
+      qc.invalidateQueries({ queryKey: ['review', 'providers'] });
+      qc.invalidateQueries({ queryKey: ['generation', 'providers'] });
+      toast({
+        title: result.success ? 'Models refreshed' : 'Refresh failed',
+        description: result.message,
+        variant: result.success ? 'default' : 'destructive',
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Failed to refresh models', description: err.message, variant: 'destructive' });
+    },
+  });
+}
+
+// ---- Review Sessions ----
+export function useStartReviewSession(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: ReviewStartRequest) => reviewApi.startSession(projectId, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['qa-pairs', projectId] });
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Failed to start review', description: err.message, variant: 'destructive' });
+    },
+  });
+}
+
+export function useReviewSession(sessionId: string | null) {
+  return useQuery({
+    queryKey: ['review-session', sessionId],
+    queryFn: () => reviewApi.getSession(sessionId!),
+    enabled: !!sessionId,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return 2000;
+      if (data.status === 'in_progress' || data.status === 'pending') return 2000;
+      return false;
+    },
+  });
+}
+
+export function useCancelReviewSession() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionId: string) => reviewApi.cancelSession(sessionId),
+    onSuccess: (_, sessionId) => {
+      qc.invalidateQueries({ queryKey: ['review-session', sessionId] });
+      toast({ title: 'Review session cancelled' });
+    },
+  });
+}
+
+export function useFactCheck(projectId: string) {
+  return useMutation({
+    mutationFn: (data: {
+      qa_pair_id: string;
+      provider: string;
+      api_key_id?: string;
+      api_key?: string;
+      model?: string;
+      ollama_url?: string;
+    }) => reviewApi.factCheck(projectId, data),
+    onError: (err: Error) => {
+      toast({ title: 'Fact check failed', description: err.message, variant: 'destructive' });
+    },
+  });
+}
+
+export function useAutoApproveWorkflow(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: AutoApproveWorkflowRequest) => reviewApi.autoApproveWorkflow(projectId, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['qa-pairs', projectId] });
+      qc.invalidateQueries({ queryKey: ['projects', projectId] });
+      qc.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Auto-approve workflow failed', description: err.message, variant: 'destructive' });
+    },
+  });
+}
+
+export function useAcceptSuggestion(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (pairId: string) => reviewApi.acceptSuggestion(pairId),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['qa-pairs', projectId] });
+      toast({ title: 'Suggestion applied', description: result.message });
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Failed to apply suggestion', description: err.message, variant: 'destructive' });
+    },
+  });
+}
+
+export function useRevertSuggestion(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (pairId: string) => reviewApi.revertSuggestion(pairId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['qa-pairs', projectId] });
+      toast({ title: 'Suggestion reverted' });
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Failed to revert suggestion', description: err.message, variant: 'destructive' });
+    },
   });
 }

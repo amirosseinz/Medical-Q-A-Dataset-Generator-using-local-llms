@@ -45,7 +45,41 @@ class Settings(BaseSettings):
     DEFAULT_MAX_WORKERS: int = 3
     DEFAULT_TEMPERATURE: float = 0.7
 
+    # RAG — Retrieval-Augmented Generation
+    # Medical embedding model — PubMedBERT for domain-specific retrieval.
+    # Falls back to all-MiniLM-L6-v2 automatically if unavailable.
+    EMBEDDING_MODEL_NAME: str = "pritamdeka/PubMedBERT-mnli-snli-scinli-scitail-mednli-stsb"
+    FAISS_INDEX_DIR: str = "./data/faiss"
+    RAG_TOP_K: int = 5          # number of chunks to retrieve per query
+    RAG_MIN_SCORE: float = 0.25 # cosine similarity floor (0–1)
+    RAG_ENABLED: bool = True    # set False to fall back to random sampling
+
+    # GPU acceleration
+    GPU_DEVICE: str = "auto"          # "auto", "cuda", "cuda:0", "cuda:1", "cpu"
+    EMBEDDING_BATCH_SIZE: int = 64     # reduce if GPU OOM occurs
+    GPU_MEMORY_FRACTION: float = 0.8   # max fraction of GPU memory to use
+
+    # Generation pipeline — adaptive over-generation
+    OVER_GEN_INITIAL_MULTIPLIER: float = 2.0   # start generating 2× target
+    OVER_GEN_MIN_MULTIPLIER: float = 1.3       # floor after successful adaptation
+    OVER_GEN_MAX_MULTIPLIER: float = 3.5       # ceiling for low-success runs
+    OVER_GEN_ADAPT_INTERVAL: int = 10          # re-evaluate after N prompts
+    MINI_BATCH_SIZE: int = 15                  # prompts per mini-batch
+
+    # Quality thresholds
+    MIN_QUALITY_SCORE: float = 0.4             # composite quality floor
+    SEMANTIC_DUP_THRESHOLD: float = 0.92       # cosine similarity dedup cutoff
+    STRING_DUP_THRESHOLD: float = 0.92         # difflib dedup cutoff
+    MIN_QUESTION_LENGTH: int = 30              # chars
+    MIN_ANSWER_LENGTH: int = 50                # chars
+
+    # LLM generation defaults
+    LLM_MAX_TOKENS: int = 1024                 # max output tokens for Q&A gen
+    LLM_RETRY_TEMPERATURE: float = 0.5         # lower temp on retry attempts
+
     # Cleanup
+    SECRET_KEY: str = "change-me-in-production-use-a-strong-random-secret-key"
+
     UPLOAD_RETENTION_DAYS: int = 7
     JOB_RETENTION_DAYS: int = 30
     MAX_PROJECT_STORAGE_MB: int = 500
@@ -63,6 +97,12 @@ class Settings(BaseSettings):
     @property
     def output_path(self) -> Path:
         p = Path(self.OUTPUT_DIR)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    @property
+    def faiss_path(self) -> Path:
+        p = Path(self.FAISS_INDEX_DIR)
         p.mkdir(parents=True, exist_ok=True)
         return p
 

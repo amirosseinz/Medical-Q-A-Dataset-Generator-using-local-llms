@@ -4,7 +4,38 @@
 import { create } from 'zustand';
 import type { GenerationProgress } from '@/types';
 
+/* ── Theme helpers ─────────────────────────────────────────────────── */
+export type Theme = 'light' | 'dark' | 'system';
+
+function getStoredTheme(): Theme {
+  try {
+    const stored = localStorage.getItem('theme');
+    if (stored === 'light' || stored === 'dark' || stored === 'system') return stored;
+  } catch { /* SSR / incognito safe */ }
+  return 'system';
+}
+
+function resolveTheme(theme: Theme): 'light' | 'dark' {
+  if (theme !== 'system') return theme;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+/** Apply the resolved theme class to <html> with smooth transition */
+export function applyThemeToDOM(theme: Theme) {
+  const resolved = resolveTheme(theme);
+  const root = document.documentElement;
+  // Add transition class for smooth color change
+  root.classList.add('theme-transition');
+  root.classList.toggle('dark', resolved === 'dark');
+  // Remove transition class after animation completes
+  setTimeout(() => root.classList.remove('theme-transition'), 350);
+}
+
 interface AppState {
+  // Theme
+  theme: Theme;
+  setTheme: (t: Theme) => void;
+
   // Sidebar
   sidebarOpen: boolean;
   toggleSidebar: () => void;
@@ -21,6 +52,12 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set) => ({
+  theme: getStoredTheme(),
+  setTheme: (t) => {
+    try { localStorage.setItem('theme', t); } catch { /* noop */ }
+    applyThemeToDOM(t);
+    set({ theme: t });
+  },
   sidebarOpen: true,
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
 

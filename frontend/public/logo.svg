@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+  </defs>
+  <!-- Concept 1: Circle base with negative-space medical cross (Letter/Object hybrid) -->
+  <g>
+    <!-- Primary shape: circle (diameter 40 -> radius 20) centered at (32,32) -->
+    <circle cx="32" cy="32" r="20" fill="#0B74DE" />
+    <!-- Negative-space cross made from one central square and one vertical & one horizontal bar (combined as fills) -->
+    <!-- Central square (8x8) at 28,28 to create solid center cutout -->
+    <rect x="28" y="28" width="8" height="8" fill="#FFFFFF" />
+    <!-- Vertical bar (8x16) above+below center to form cross arm (stacked as one rect) -->
+    <rect x="28" y="20" width="8" height="24" fill="#FFFFFF" />
+    <!-- Horizontal bar (16x8) left+right center to complete cross (overlapping is fine) -->
+    <rect x="20" y="28" width="24" height="8" fill="#FFFFFF" />
+  </g>
+</svg>

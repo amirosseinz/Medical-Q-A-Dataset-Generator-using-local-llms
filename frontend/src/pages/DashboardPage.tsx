@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, FolderOpen, Archive, Trash2, MoreVertical } from 'lucide-react';
+import { Plus, FolderOpen, Archive, Trash2, MoreVertical, AlertTriangle } from 'lucide-react';
 import { useProjects, useCreateProject, useDeleteProject } from '@/hooks/use-api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,16 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -32,6 +42,7 @@ export default function DashboardPage() {
   const deleteProject = useDeleteProject();
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
   const [name, setName] = useState('');
   const [domain, setDomain] = useState('');
   const [description, setDescription] = useState('');
@@ -162,7 +173,7 @@ export default function DashboardPage() {
                 key={project.id}
                 project={project}
                 onClick={() => navigate(`/projects/${project.id}`)}
-                onDelete={() => deleteProject.mutate(project.id)}
+                onDelete={() => setDeleteTarget(project)}
               />
             ))}
           </div>
@@ -182,12 +193,55 @@ export default function DashboardPage() {
                 key={project.id}
                 project={project}
                 onClick={() => navigate(`/projects/${project.id}`)}
-                onDelete={() => deleteProject.mutate(project.id)}
+                onDelete={() => setDeleteTarget(project)}
               />
             ))}
           </div>
         </div>
       )}
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              Delete Project
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                Are you sure you want to delete{' '}
+                <span className="font-semibold text-foreground">{deleteTarget?.name}</span>?
+              </span>
+              <span className="block">
+                This will permanently remove{' '}
+                <span className="font-semibold text-foreground">
+                  {formatNumber(deleteTarget?.total_qa_pairs ?? 0)} Q&A pairs
+                </span>
+                , all uploaded sources, FAISS indices, and exported files. Any running generation
+                jobs will be cancelled.
+              </span>
+              <span className="block text-destructive font-medium">This action cannot be undone.</span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteProject.isPending}
+              onClick={() => {
+                if (deleteTarget) {
+                  deleteProject.mutate(deleteTarget.id, {
+                    onSuccess: () => setDeleteTarget(null),
+                  });
+                }
+              }}
+            >
+              {deleteProject.isPending ? 'Deleting\u2026' : 'Delete Project'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -246,7 +300,7 @@ function ProjectCard({
             sources
           </div>
         </div>
-        {project.avg_quality_score !== null && (
+        {project.avg_quality_score != null && (
           <div className="mt-2">
             <Badge variant={project.avg_quality_score >= 0.7 ? 'success' : 'warning'}>
               Quality: {(project.avg_quality_score * 100).toFixed(0)}%

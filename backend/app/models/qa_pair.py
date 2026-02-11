@@ -12,10 +12,14 @@ class QAPair(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     chunk_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("chunks.id", ondelete="SET NULL"), nullable=True)
+    generation_job_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("generation_jobs.id", ondelete="SET NULL"), nullable=True)
     question: Mapped[str] = mapped_column(Text, nullable=False)
     answer: Mapped[str] = mapped_column(Text, nullable=False)
-    source_type: Mapped[str] = mapped_column(String(50), nullable=False)  # medquad | pdf_ollama | pubmed_ollama
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False)  # medquad | pdf_ollama | pubmed_ollama | rag_ollama
     model_used: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(50), nullable=True, default="ollama")  # ollama | openai | anthropic | gemini | openrouter
+    source_document: Mapped[str | None] = mapped_column(String(500), nullable=True)  # e.g. "diabetes_guidelines.pdf" or "Insulin Resistance - PMID:12345"
+    source_metadata: Mapped[dict | None] = mapped_column("source_meta", JSON, nullable=True)  # DOI, authors, file path, PMID, etc.
     prompt_template: Mapped[str | None] = mapped_column(String(50), nullable=True)
     quality_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     validation_status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")  # pending | approved | rejected
@@ -39,6 +43,8 @@ class QAPair(Base):
         Index("ix_qa_pairs_validation_status", "validation_status"),
         Index("ix_qa_pairs_quality_score", "quality_score"),
         Index("ix_qa_pairs_source_type", "source_type"),
+        Index("ix_qa_pairs_generation_job_id", "generation_job_id"),
+        Index("ix_qa_pairs_source_document", "source_document"),
     )
 
     def __repr__(self) -> str:

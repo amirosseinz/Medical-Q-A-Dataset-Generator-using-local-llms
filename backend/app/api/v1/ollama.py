@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.services.ollama_service import test_connection
+from app.services.http_client_manager import get_http_client
 from app.config import get_settings
 
 router = APIRouter()
@@ -54,22 +55,21 @@ async def ollama_status():
     settings = get_settings()
     url = settings.OLLAMA_URL
     # Get full model info from Ollama
-    import httpx
     base_url = url.rstrip("/")
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{base_url}/api/tags")
-            resp.raise_for_status()
-            data = resp.json()
-            models = [
-                OllamaModelInfo(
-                    name=m.get("name", "Unknown"),
-                    size=m.get("size", 0),
-                    modified_at=m.get("modified_at", ""),
-                )
-                for m in data.get("models", [])
-            ]
-            return OllamaStatusResponse(connected=True, url=url, models=models)
+        client = get_http_client("ollama")
+        resp = await client.get(f"{base_url}/api/tags")
+        resp.raise_for_status()
+        data = resp.json()
+        models = [
+            OllamaModelInfo(
+                name=m.get("name", "Unknown"),
+                size=m.get("size", 0),
+                modified_at=m.get("modified_at", ""),
+            )
+            for m in data.get("models", [])
+        ]
+        return OllamaStatusResponse(connected=True, url=url, models=models)
     except Exception:
         return OllamaStatusResponse(connected=False, url=url, models=[])
 

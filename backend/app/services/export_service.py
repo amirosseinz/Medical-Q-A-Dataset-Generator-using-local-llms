@@ -22,13 +22,49 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class QAPairForExport:
-    """Minimal Q&A pair representation for export."""
+    """Minimal Q&A pair representation for export.
+
+    RAG fields (criterion 8): when a pair was generated via RAG, the metadata
+    dict contains citation_chunk_ids, citations (with scores and previews),
+    and query_term. These are surfaced in the export so every dataset row
+    carries its evidence provenance.
+    """
     question: str
     answer: str
     source_type: str = ""
     quality_score: float | None = None
     validation_status: str = ""
     metadata: dict | None = None
+
+    # ── Convenience accessors for RAG evidence ──
+
+    @property
+    def is_rag(self) -> bool:
+        return bool(self.metadata and self.metadata.get("rag"))
+
+    @property
+    def citation_chunk_ids(self) -> list[str]:
+        if self.metadata:
+            return self.metadata.get("citation_chunk_ids", [])
+        return []
+
+    @property
+    def retrieval_scores(self) -> list[float]:
+        if self.metadata:
+            return self.metadata.get("retrieval_scores", [])
+        return []
+
+    @property
+    def citations(self) -> list[dict]:
+        if self.metadata:
+            return self.metadata.get("citations", [])
+        return []
+
+    @property
+    def query_term(self) -> str:
+        if self.metadata:
+            return self.metadata.get("query_term", "")
+        return ""
 
 
 def split_dataset(
@@ -55,9 +91,12 @@ def split_dataset(
 # ── Format converters ──────────────────────────────────────────────────
 
 def to_csv(pairs: list[QAPairForExport], include_metadata: bool = False) -> str:
-    """Standard CSV: question, answer, source, quality_score, status."""
+    """Standard CSV: question, answer, source, quality_score, status, + RAG evidence fields."""
     buf = io.StringIO()
-    fieldnames = ["question", "answer", "source_type", "quality_score", "validation_status"]
+    fieldnames = [
+        "question", "answer", "source_type", "quality_score", "validation_status",
+        "rag", "query_term", "citation_chunk_ids", "retrieval_scores",
+    ]
     writer = csv.DictWriter(buf, fieldnames=fieldnames)
     writer.writeheader()
     for p in pairs:
@@ -67,6 +106,10 @@ def to_csv(pairs: list[QAPairForExport], include_metadata: bool = False) -> str:
             "source_type": p.source_type,
             "quality_score": p.quality_score,
             "validation_status": p.validation_status,
+            "rag": p.is_rag,
+            "query_term": p.query_term,
+            "citation_chunk_ids": ";".join(p.citation_chunk_ids) if p.citation_chunk_ids else "",
+            "retrieval_scores": ";".join(f"{s:.4f}" for s in p.retrieval_scores) if p.retrieval_scores else "",
         })
     return buf.getvalue()
 
@@ -81,25 +124,36 @@ def to_training_csv(pairs: list[QAPairForExport]) -> str:
 
 
 def to_json(pairs: list[QAPairForExport]) -> str:
-    """Full JSON array with all fields."""
-    data = [
-        {
+    """Full JSON array with all fields including RAG evidence."""
+    data = []
+    for p in pairs:
+        obj = {
             "question": p.question,
             "answer": p.answer,
             "source_type": p.source_type,
             "quality_score": p.quality_score,
             "validation_status": p.validation_status,
         }
-        for p in pairs
-    ]
+        if p.is_rag:
+            obj["rag"] = True
+            obj["query_term"] = p.query_term
+            obj["citation_chunk_ids"] = p.citation_chunk_ids
+            obj["retrieval_scores"] = p.retrieval_scores
+            obj["citations"] = p.citations
+        data.append(obj)
     return json.dumps(data, indent=2, ensure_ascii=False)
 
 
 def to_jsonl(pairs: list[QAPairForExport]) -> str:
-    """JSONL — one JSON object per line."""
+    """JSONL — one JSON object per line, with RAG evidence when available."""
     lines = []
     for p in pairs:
         obj = {"question": p.question, "answer": p.answer}
+        if p.is_rag:
+            obj["rag"] = True
+            obj["query_term"] = p.query_term
+            obj["citation_chunk_ids"] = p.citation_chunk_ids
+            obj["retrieval_scores"] = p.retrieval_scores
         lines.append(json.dumps(obj, ensure_ascii=False))
     return "\n".join(lines) + "\n"
 
@@ -133,18 +187,22 @@ def to_openai(pairs: list[QAPairForExport]) -> str:
 
 
 def to_parquet_bytes(pairs: list[QAPairForExport]) -> bytes:
-    """Parquet format bytes (requires pandas + pyarrow)."""
+    """Parquet format bytes (requires pandas + pyarrow), includes RAG evidence."""
     import pandas as pd
-    data = [
-        {
+    data = []
+    for p in pairs:
+        row = {
             "question": p.question,
             "answer": p.answer,
             "source_type": p.source_type,
             "quality_score": p.quality_score,
             "validation_status": p.validation_status,
+            "rag": p.is_rag,
+            "query_term": p.query_term,
+            "citation_chunk_ids": json.dumps(p.citation_chunk_ids) if p.citation_chunk_ids else "",
+            "retrieval_scores": json.dumps(p.retrieval_scores) if p.retrieval_scores else "",
         }
-        for p in pairs
-    ]
+        data.append(row)
     df = pd.DataFrame(data)
     buf = io.BytesIO()
     df.to_parquet(buf, index=False, engine="pyarrow")

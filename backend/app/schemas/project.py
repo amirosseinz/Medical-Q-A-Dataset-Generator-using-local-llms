@@ -46,5 +46,6 @@ class ProjectListItem(BaseModel):
     updated_at: datetime
     total_qa_pairs: int = 0
     total_sources: int = 0
+    avg_quality_score: float | None = None
 
     model_config = {"from_attributes": True}

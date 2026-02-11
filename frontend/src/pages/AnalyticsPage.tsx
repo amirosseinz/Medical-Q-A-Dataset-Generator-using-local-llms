@@ -1,4 +1,4 @@
-import { useProjects, useQAPairStats } from '@/hooks/use-api';
+import { useProjects, useQAPairStats, useEnhancedAnalytics } from '@/hooks/use-api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Select,
@@ -7,6 +7,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import { formatNumber } from '@/lib/utils';
 import { useState } from 'react';
 import {
@@ -21,6 +31,8 @@ import {
   Pie,
   Cell,
   Legend,
+  AreaChart,
+  Area,
 } from 'recharts';
 
 const COLORS = ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#0ea5e9', '#8b5cf6'];
@@ -32,12 +44,25 @@ export default function AnalyticsPage() {
   // Use the first project if none selected
   const projectId = selectedProjectId || projects?.[0]?.id || '';
   const { data: stats } = useQAPairStats(projectId);
+  const { data: analytics } = useEnhancedAnalytics(projectId);
 
   const sourceData = stats?.by_source_type
     ? Object.entries(stats.by_source_type).map(([name, value]) => ({
         name: name.toUpperCase().replace('_', ' + '),
         value,
       }))
+    : [];
+
+  // Source documents: specific files/articles that generated Q&A pairs
+  const sourceDocData = stats?.by_source_document
+    ? Object.entries(stats.by_source_document)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 10)
+        .map(([name, count]) => ({
+          name: name.length > 40 ? name.slice(0, 37) + '…' : name,
+          fullName: name,
+          count,
+        }))
     : [];
 
   const modelData = stats?.by_model
@@ -232,6 +257,169 @@ export default function AnalyticsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Top Source Documents */}
+      {sourceDocData.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Top Source Documents</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={Math.max(200, sourceDocData.length * 36)}>
+              <BarChart data={sourceDocData} layout="vertical" margin={{ left: 20, right: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                <XAxis type="number" className="text-xs" />
+                <YAxis type="category" dataKey="name" className="text-xs" width={200} tick={{ fontSize: 11 }} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'hsl(var(--card))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '0.5rem',
+                  }}
+                  formatter={(value: number) => [`${value} pairs`, 'Q&A Pairs']}
+                />
+                <Bar dataKey="count" fill="#0ea5e9" radius={[0, 4, 4, 0]} name="Q&A Pairs" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Quality Histogram + Timeline */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Quality Distribution Histogram */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Quality Score Distribution</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {analytics?.quality_histogram && analytics.quality_histogram.length > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={analytics.quality_histogram}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                  <XAxis dataKey="range" className="text-xs" />
+                  <YAxis className="text-xs" />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--card))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '0.5rem',
+                    }}
+                  />
+                  <Bar dataKey="count" fill="#f59e0b" radius={[4, 4, 0, 0]} name="Pairs" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-[280px] items-center justify-center text-muted-foreground">
+                No data available
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Generation Timeline */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Generation Timeline</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {analytics?.generation_timeline && analytics.generation_timeline.length > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <AreaChart data={analytics.generation_timeline}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                  <XAxis dataKey="date" className="text-xs" />
+                  <YAxis className="text-xs" />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--card))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '0.5rem',
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="count"
+                    stroke="#10b981"
+                    fill="#10b98120"
+                    name="Pairs Generated"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex h-[280px] items-center justify-center text-muted-foreground">
+                No data available
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Per-File Breakdown Table */}
+      {analytics?.by_file && analytics.by_file.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Per-File Breakdown</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>File</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead className="text-right">Pairs</TableHead>
+                  <TableHead className="text-right">Avg Quality</TableHead>
+                  <TableHead className="text-right">Approved</TableHead>
+                  <TableHead className="text-right">Rejected</TableHead>
+                  <TableHead className="text-right">Pending</TableHead>
+                  <TableHead className="w-32">Approval</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {analytics.by_file.map((file) => {
+                  const total = file.approved + file.rejected + file.pending;
+                  const approvalPct = total > 0 ? (file.approved / total) * 100 : 0;
+                  return (
+                    <TableRow key={file.filename}>
+                      <TableCell className="font-medium text-sm max-w-[200px] truncate">
+                        {file.filename}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="text-xs">
+                          {file.source_type}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">{formatNumber(file.pair_count)}</TableCell>
+                      <TableCell className="text-right">
+                        {file.avg_quality != null ? (
+                          <span
+                            className={
+                              file.avg_quality >= 0.7
+                                ? 'text-success-600'
+                                : file.avg_quality >= 0.4
+                                ? 'text-warning-600'
+                                : 'text-destructive'
+                            }
+                          >
+                            {(file.avg_quality * 100).toFixed(0)}%
+                          </span>
+                        ) : (
+                          '—'
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right text-success-600">{file.approved}</TableCell>
+                      <TableCell className="text-right text-destructive">{file.rejected}</TableCell>
+                      <TableCell className="text-right text-muted-foreground">{file.pending}</TableCell>
+                      <TableCell>
+                        <Progress value={approvalPct} className="h-2" />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

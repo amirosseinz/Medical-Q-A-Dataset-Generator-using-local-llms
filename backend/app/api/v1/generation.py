@@ -11,8 +11,10 @@ from app.models import Project, GenerationJob
 from app.schemas.generation import (
     GenerationConfig,
     GenerationStartResponse,
+    GenerationProviderInfo,
     JobProgressResponse,
     JobResponse,
+    KeyValidationResult,
 )
 from app.tasks.generation import run_generation
 
@@ -29,6 +31,14 @@ def start_generation(
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    # Pre-flight: validate API key exists for cloud providers
+    if config.provider and config.provider.lower() != "ollama":
+        from app.services.api_key_service import APIKeyService
+        service = APIKeyService(db)
+        ok, msg = service.validate_key_exists(config.provider)
+        if not ok:
+            raise HTTPException(status_code=422, detail=msg)
 
     # Auto-fill medical_terms from project domain if not provided
     if not config.medical_terms.strip():
@@ -54,11 +64,19 @@ def start_generation(
             detail=f"Project already has an active job ({active.id[:8]}). Cancel it first.",
         )
 
+    # Compute generation_number (auto-increment per project)
+    from sqlalchemy import func
+    max_gen = db.query(func.max(GenerationJob.generation_number)).filter(
+        GenerationJob.project_id == project_id
+    ).scalar()
+    next_gen = (max_gen or 0) + 1
+
     # Create job record
     job = GenerationJob(
         project_id=project_id,
         status="queued",
         config=config.model_dump(),
+        generation_number=next_gen,
     )
     db.add(job)
 
@@ -143,3 +161,51 @@ def list_project_jobs(project_id: str, db: Session = Depends(get_db)):
         .all()
     )
     return jobs
+
+
+# ---- API Key Validation ----
+
+
+@router.get("/generation/validate-key/{provider}", response_model=KeyValidationResult)
+def validate_generation_key(provider: str, db: Session = Depends(get_db)):
+    """Check if an API key is configured for a given provider."""
+    from app.services.api_key_service import APIKeyService
+    service = APIKeyService(db)
+    ok, msg = service.validate_key_exists(provider)
+    return KeyValidationResult(provider=provider, has_key=ok, message=msg)
+
+
+# ---- Generation Provider listing ----
+
+
+@router.get("/generation/providers", response_model=list[GenerationProviderInfo])
+def list_generation_providers(db: Session = Depends(get_db)):
+    """List LLM providers available for Q&A generation (Ollama + cloud)."""
+    from app.services.api_key_service import APIKeyService
+    from app.services.llm_http import PROVIDER_MODELS
+
+    service = APIKeyService(db)
+    provider_names = ["ollama", "openai", "anthropic", "gemini", "openrouter"]
+    providers = []
+
+    for name in provider_names:
+        requires_key = name != "ollama"
+        models: list[str] = PROVIDER_MODELS.get(name, [])
+
+        record = service.get_key_record(name)
+        has_key = record is not None
+        stored_key_id = record.id if record else None
+
+        # Use dynamically fetched models if available
+        if record and record.available_models:
+            models = record.available_models
+
+        providers.append(GenerationProviderInfo(
+            name=name,
+            models=models,
+            requires_api_key=requires_key,
+            has_stored_key=has_key,
+            stored_key_id=stored_key_id,
+        ))
+
+    return providers

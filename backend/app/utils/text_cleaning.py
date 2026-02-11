@@ -26,8 +26,3 @@ def clean_text(text: str) -> str:
     lines = text.split("\n")
     lines = [l for l in lines if len(l.strip()) > 10]
     return "\n".join(lines)
-
-
-def normalize_whitespace(text: str) -> str:
-    """Collapse all whitespace to single spaces."""
-    return re.sub(r"\s+", " ", text).strip()

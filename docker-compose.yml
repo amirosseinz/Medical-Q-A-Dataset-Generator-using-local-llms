@@ -31,6 +31,12 @@ services:
       - DATABASE_URL=sqlite:///./data/medqa.db
       - UPLOAD_DIR=/app/data/uploads
       - OUTPUT_DIR=/app/data/outputs
+      - FAISS_INDEX_DIR=/app/data/faiss
+      - GPU_DEVICE=${GPU_DEVICE:-auto}
+      - EMBEDDING_BATCH_SIZE=${EMBEDDING_BATCH_SIZE:-64}
+      - GPU_MEMORY_FRACTION=${GPU_MEMORY_FRACTION:-0.8}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     volumes:
       - backend_data:/app/data
     depends_on:
@@ -47,6 +53,13 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   # ---- Celery worker ----
   celery_worker:
@@ -62,6 +75,12 @@ services:
       - DATABASE_URL=sqlite:///./data/medqa.db
       - UPLOAD_DIR=/app/data/uploads
       - OUTPUT_DIR=/app/data/outputs
+      - FAISS_INDEX_DIR=/app/data/faiss
+      - GPU_DEVICE=${GPU_DEVICE:-auto}
+      - EMBEDDING_BATCH_SIZE=${EMBEDDING_BATCH_SIZE:-64}
+      - GPU_MEMORY_FRACTION=${GPU_MEMORY_FRACTION:-0.8}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     volumes:
       - backend_data:/app/data
     depends_on:
@@ -72,6 +91,13 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   # ---- React frontend ----
   frontend:

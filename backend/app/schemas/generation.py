@@ -19,6 +19,10 @@ class GenerationConfig(BaseModel):
     use_pubmed: bool = False
     use_ollama: bool = True
 
+    # LLM provider selection (new — supports cloud providers)
+    provider: str = Field(default="ollama", description="LLM provider: ollama, openai, anthropic, gemini, openrouter")
+    api_key_id: str | None = Field(default=None, description="Stored API key ID for cloud providers")
+
     # Ollama
     ollama_url: str = "http://host.docker.internal:11434"
     ollama_model: str = "llama3"
@@ -26,15 +30,19 @@ class GenerationConfig(BaseModel):
     top_p: float = Field(default=0.9, ge=0.0, le=1.0)
 
     # Generation params
-    target_pairs: int = Field(default=1000, ge=1, le=50000)
+    target_pairs: int = Field(default=50, ge=1, le=50000)
     pubmed_retmax: int = Field(default=1000, ge=1, le=10000)
     chunk_size: int = Field(default=500, ge=50, le=2000)
     chunk_overlap: int = Field(default=50, ge=0, le=500)
-    max_workers: int = Field(default=3, ge=1, le=20)
+    max_workers: int = Field(default=5, ge=1, le=20)
     chunking_strategy: ChunkingStrategy = ChunkingStrategy.WORD_COUNT
 
+    # Per-source chunk limits (0 or None = unlimited)
+    pdf_chunk_limit: int | None = Field(default=None, ge=0, le=10000)
+    pubmed_chunk_limit: int | None = Field(default=None, ge=0, le=10000)
+
     # Quality
-    min_quality_score: float = Field(default=0.6, ge=0.0, le=1.0)
+    min_quality_score: float = Field(default=0.4, ge=0.0, le=1.0)
 
     # Question diversity
     difficulty_levels: list[DifficultyLevel] = [DifficultyLevel.INTERMEDIATE]
@@ -70,6 +78,25 @@ class JobResponse(BaseModel):
     completed_at: datetime | None
     error_message: str | None
     config: dict | None
+    generation_number: int | None = None
+    qa_pair_count: int | None = None
+    output_files: dict | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class KeyValidationResult(BaseModel):
+    """Result of checking whether an API key exists for a provider."""
+    provider: str
+    has_key: bool
+    message: str
+
+
+class GenerationProviderInfo(BaseModel):
+    """LLM provider metadata for the generation config UI."""
+    name: str
+    models: list[str]
+    requires_api_key: bool
+    has_stored_key: bool = False
+    stored_key_id: str | None = None

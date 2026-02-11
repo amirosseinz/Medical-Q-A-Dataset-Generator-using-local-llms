@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
+import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft,
   Upload,
@@ -14,6 +15,8 @@ import {
   Trash2,
   Loader2,
   Settings2,
+  AlertTriangle,
+  CheckCircle2,
 } from 'lucide-react';
 import {
   useProject,
@@ -25,7 +28,9 @@ import {
   useCancelGeneration,
   useQAPairStats,
   useOllamaStatus,
+  useGenerationProviders,
 } from '@/hooks/use-api';
+import { useJobCompletionWatcher } from '@/hooks/use-job-watcher';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -51,8 +56,15 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { formatNumber, formatDate } from '@/lib/utils';
-import { exportApi } from '@/lib/api';
+import { exportApi, generationApi } from '@/lib/api';
 import type { ExportFormat, GenerationJob } from '@/types';
 
 export default function ProjectDetailPage() {
@@ -64,6 +76,10 @@ export default function ProjectDetailPage() {
   const { data: jobs } = useJobs(projectId!);
   const { data: stats } = useQAPairStats(projectId!);
   const { data: ollama } = useOllamaStatus();
+  const { data: genProviders } = useGenerationProviders();
+
+  // Auto-refresh: watches jobs and invalidates queries on completion
+  useJobCompletionWatcher(projectId);
 
   const uploadSources = useUploadSources(projectId!);
   const deleteSource = useDeleteSource(projectId!);
@@ -72,20 +88,38 @@ export default function ProjectDetailPage() {
 
   // Generation config state
   const [configOpen, setConfigOpen] = useState(false);
+  const [genProvider, setGenProvider] = useState('ollama');
   const [model, setModel] = useState('');
   const [medicalTerms, setMedicalTerms] = useState('');
   const [pubmedEmail, setPubmedEmail] = useState('');
-  const [targetPairs, setTargetPairs] = useState(1000);
+  const [targetPairs, setTargetPairs] = useState(50);
   const [difficulty, setDifficulty] = useState('intermediate');
   const [chunkSize, setChunkSize] = useState(500);
   const [includePubmed, setIncludePubmed] = useState(false);
   const [pubmedMax, setPubmedMax] = useState(1000);
   const [temperature, setTemperature] = useState(0.7);
-  const [minQuality, setMinQuality] = useState(0.6);
+  const [minQuality, setMinQuality] = useState(0.4);
+  const [maxWorkers, setMaxWorkers] = useState(5);
+  const [pdfChunkLimit, setPdfChunkLimit] = useState(0); // 0 = unlimited
+  const [pubmedChunkLimit, setPubmedChunkLimit] = useState(0); // 0 = unlimited
+
+  // API key validation for cloud providers
+  const isCloudProvider = genProvider !== 'ollama';
+  const { data: keyValidation, isLoading: keyValidating } = useQuery({
+    queryKey: ['generation', 'validate-key', genProvider],
+    queryFn: () => generationApi.validateKey(genProvider),
+    enabled: isCloudProvider && configOpen,
+    staleTime: 30_000,
+  });
+  const keyMissing = isCloudProvider && keyValidation && !keyValidation.has_key;
 
   // Export state
   const [exportFormat, setExportFormat] = useState<ExportFormat>('csv');
   const [exporting, setExporting] = useState(false);
+  const [exportingJobId, setExportingJobId] = useState<string | null>(null);
+  const [trainSplit, setTrainSplit] = useState(80);
+  const [valSplit, setValSplit] = useState(10);
+  const [testSplit, setTestSplit] = useState(10);
 
   // File drop
   const onDrop = useCallback(
@@ -109,8 +143,13 @@ export default function ProjectDetailPage() {
   });
 
   const handleStartGeneration = () => {
+    const selectedProvider = genProviders?.find(p => p.name === genProvider);
     startGeneration.mutate({
-      ollama_model: model || (ollama?.models?.[0]?.name ?? 'llama3'),
+      provider: genProvider,
+      api_key_id: selectedProvider?.stored_key_id ?? undefined,
+      ollama_model: model || (genProvider === 'ollama'
+        ? (ollama?.models?.[0]?.name ?? 'llama3')
+        : (selectedProvider?.models?.[0] ?? '')),
       medical_terms: medicalTerms || project?.domain || 'medical conditions',
       email: pubmedEmail,
       target_pairs: targetPairs,
@@ -122,6 +161,9 @@ export default function ProjectDetailPage() {
       pubmed_retmax: pubmedMax,
       temperature,
       min_quality_score: minQuality,
+      max_workers: maxWorkers,
+      pdf_chunk_limit: pdfChunkLimit > 0 ? pdfChunkLimit : undefined,
+      pubmed_chunk_limit: pubmedChunkLimit > 0 ? pubmedChunkLimit : undefined,
     });
     setConfigOpen(false);
   };
@@ -134,13 +176,32 @@ export default function ProjectDetailPage() {
         format: exportFormat,
         validation_statuses: undefined,
         min_quality_score: 0,
-        train_split: 0.8,
-        val_split: 0.1,
-        test_split: 0.1,
+        train_split: trainSplit / 100,
+        val_split: valSplit / 100,
+        test_split: testSplit / 100,
         include_metadata: false,
       });
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleExportGeneration = async (jobId: string, format: ExportFormat = 'csv') => {
+    if (!projectId) return;
+    setExportingJobId(jobId);
+    try {
+      await exportApi.download(projectId, {
+        format,
+        generation_job_id: jobId,
+        validation_statuses: undefined,
+        min_quality_score: 0,
+        train_split: trainSplit / 100,
+        val_split: valSplit / 100,
+        test_split: testSplit / 100,
+        include_metadata: false,
+      });
+    } finally {
+      setExportingJobId(null);
     }
   };
 
@@ -187,7 +248,7 @@ export default function ProjectDetailPage() {
           </Link>
           <Button
             onClick={() => setConfigOpen(true)}
-            disabled={!!activeJob || !ollama?.connected}
+            disabled={!!activeJob || (!ollama?.connected && !genProviders?.some(p => p.has_stored_key))}
           >
             <Play className="mr-2 h-4 w-4" />
             Generate
@@ -355,7 +416,12 @@ export default function ProjectDetailPage() {
                 {jobs
                   .filter((j) => j.id !== activeJob?.id)
                   .map((job) => (
-                    <JobRow key={job.id} job={job} />
+                    <JobRow
+                      key={job.id}
+                      job={job}
+                      onExport={(format) => handleExportGeneration(job.id, format)}
+                      isExporting={exportingJobId === job.id}
+                    />
                   ))}
               </CardContent>
             </Card>
@@ -398,9 +464,81 @@ export default function ProjectDetailPage() {
                   </SelectContent>
                 </Select>
               </div>
+
+              {/* Dataset Split Configuration */}
+              <Separator />
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Train / Validation / Test Split</Label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {[
+                    { label: '80/10/10', t: 80, v: 10, te: 10 },
+                    { label: '70/15/15', t: 70, v: 15, te: 15 },
+                    { label: '90/5/5', t: 90, v: 5, te: 5 },
+                    { label: '100/0/0', t: 100, v: 0, te: 0 },
+                  ].map((preset) => (
+                    <Button
+                      key={preset.label}
+                      variant={trainSplit === preset.t && valSplit === preset.v && testSplit === preset.te ? 'default' : 'outline'}
+                      size="sm"
+                      className="text-xs h-7"
+                      onClick={() => { setTrainSplit(preset.t); setValSplit(preset.v); setTestSplit(preset.te); }}
+                    >
+                      {preset.label}
+                    </Button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Train %</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={trainSplit}
+                      onChange={(e) => setTrainSplit(Math.max(0, Math.min(100, Number(e.target.value))))}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Validation %</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={valSplit}
+                      onChange={(e) => setValSplit(Math.max(0, Math.min(100, Number(e.target.value))))}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-muted-foreground">Test %</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={testSplit}
+                      onChange={(e) => setTestSplit(Math.max(0, Math.min(100, Number(e.target.value))))}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                </div>
+                {trainSplit + valSplit + testSplit !== 100 && (
+                  <p className="text-xs text-destructive">
+                    Splits must sum to 100% (currently {trainSplit + valSplit + testSplit}%)
+                  </p>
+                )}
+                {stats?.total != null && stats.total > 0 && trainSplit + valSplit + testSplit === 100 && (
+                  <p className="text-xs text-muted-foreground">
+                    Preview: {Math.round(stats.total * trainSplit / 100)} train
+                    {valSplit > 0 && <> · {Math.round(stats.total * valSplit / 100)} val</>}
+                    {testSplit > 0 && <> · {Math.round(stats.total * testSplit / 100)} test</>}
+                  </p>
+                )}
+              </div>
+
               <Button
                 onClick={handleExport}
-                disabled={exporting || !stats?.total}
+                disabled={exporting || !stats?.total || trainSplit + valSplit + testSplit !== 100}
               >
                 {exporting ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -424,39 +562,104 @@ export default function ProjectDetailPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto pr-2">
+            {/* LLM Provider */}
+            <div className="grid gap-2">
+              <Label>
+                LLM Provider
+                <InfoTooltip text="Choose the LLM provider for Q&A generation. Cloud providers require a stored API key (configure in Settings)." />
+              </Label>
+              <Select value={genProvider} onValueChange={(v) => { setGenProvider(v); setModel(''); }}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {genProviders?.map((p) => (
+                    <SelectItem key={p.name} value={p.name} disabled={p.requires_api_key && !p.has_stored_key}>
+                      <span className="flex items-center gap-1.5">
+                        <span className="capitalize">{p.name}</span>
+                        {p.requires_api_key && p.has_stored_key && (
+                          <CheckCircle2 className="h-3 w-3 text-green-500" />
+                        )}
+                        {p.requires_api_key && !p.has_stored_key && (
+                          <span className="text-xs text-muted-foreground">(no API key)</span>
+                        )}
+                      </span>
+                    </SelectItem>
+                  )) ?? (
+                    <SelectItem value="ollama">Ollama (Local)</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+              {isCloudProvider && keyValidating && (
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Checking API key…
+                </p>
+              )}
+              {keyMissing && (
+                <p className="flex items-center gap-1.5 text-xs text-destructive">
+                  <AlertTriangle className="h-3 w-3" />
+                  No API key configured for {genProvider}.{' '}
+                  <Link to="/settings" className="underline font-medium">
+                    Add key in Settings
+                  </Link>
+                </p>
+              )}
+              {isCloudProvider && keyValidation?.has_key && !keyValidating && (
+                <p className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
+                  <CheckCircle2 className="h-3 w-3" />
+                  API key configured
+                </p>
+              )}
+            </div>
+
             {/* Medical Terms */}
             <div className="grid gap-2">
-              <Label>Medical Terms / Keywords</Label>
+              <Label>
+                Medical Terms / Keywords
+                <InfoTooltip text="Comma-separated medical keywords used to search PubMed and guide Q&A generation. Leave empty to auto-use the project domain." />
+              </Label>
               <Input
                 placeholder={`e.g. ${project?.domain || 'heart failure, diabetes, hypertension'}`}
                 value={medicalTerms}
                 onChange={(e) => setMedicalTerms(e.target.value)}
               />
-              <p className="text-xs text-muted-foreground">
-                Comma-separated. Leave empty to use project domain.
-              </p>
             </div>
 
             {/* Model */}
             <div className="grid gap-2">
-              <Label>Ollama Model</Label>
+              <Label>
+                {genProvider === 'ollama' ? 'Ollama Model' : `${genProvider.charAt(0).toUpperCase() + genProvider.slice(1)} Model`}
+                <InfoTooltip text="The LLM model used to generate Q&A pairs. Larger models produce higher quality but are slower." />
+              </Label>
               <Select value={model} onValueChange={setModel}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select model" />
                 </SelectTrigger>
                 <SelectContent>
-                  {ollama?.models?.map((m) => (
-                    <SelectItem key={m.name} value={m.name}>
-                      {m.name}
-                    </SelectItem>
-                  ))}
+                  {genProvider === 'ollama' ? (
+                    ollama?.models?.map((m) => (
+                      <SelectItem key={m.name} value={m.name}>
+                        {m.name}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    genProviders?.find(p => p.name === genProvider)?.models?.map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {m}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
 
             {/* Target pairs */}
             <div className="grid gap-2">
-              <Label>Target Q&A Pairs: {targetPairs}</Label>
+              <Label>
+                Target Q&A Pairs: {targetPairs}
+                <InfoTooltip text="Total number of Q&A pairs to generate. The system will attempt to reach this target by processing chunks from all sources." />
+              </Label>
               <Slider
                 value={[targetPairs]}
                 onValueChange={([v]) => setTargetPairs(v)}
@@ -466,9 +669,27 @@ export default function ProjectDetailPage() {
               />
             </div>
 
+            {/* Max workers */}
+            <div className="grid gap-2">
+              <Label>
+                Concurrent Workers: {maxWorkers}
+                <InfoTooltip text="Number of parallel requests sent to Ollama. Higher = faster but uses more RAM/GPU. Reduce if you experience OOM errors." />
+              </Label>
+              <Slider
+                value={[maxWorkers]}
+                onValueChange={([v]) => setMaxWorkers(v)}
+                min={1}
+                max={10}
+                step={1}
+              />
+            </div>
+
             {/* Difficulty */}
             <div className="grid gap-2">
-              <Label>Difficulty</Label>
+              <Label>
+                Difficulty
+                <InfoTooltip text="Controls the complexity of generated questions. 'Mixed' produces a balanced spread of beginner, intermediate, and advanced questions." />
+              </Label>
               <Select value={difficulty} onValueChange={setDifficulty}>
                 <SelectTrigger>
                   <SelectValue />
@@ -484,7 +705,10 @@ export default function ProjectDetailPage() {
 
             {/* Chunk size */}
             <div className="grid gap-2">
-              <Label>Chunk Size (words): {chunkSize}</Label>
+              <Label>
+                Chunk Size (words): {chunkSize}
+                <InfoTooltip text="Number of words per text chunk. Larger chunks give more context but may dilute focus. 300-500 works well for most medical texts." />
+              </Label>
               <Slider
                 value={[chunkSize]}
                 onValueChange={([v]) => setChunkSize(v)}
@@ -496,7 +720,10 @@ export default function ProjectDetailPage() {
 
             {/* Temperature */}
             <div className="grid gap-2">
-              <Label>Temperature: {temperature.toFixed(1)}</Label>
+              <Label>
+                Temperature: {temperature.toFixed(1)}
+                <InfoTooltip text="Controls randomness in generation. Lower (0.3-0.5) = more focused/factual. Higher (0.7-1.0) = more creative/diverse answers." />
+              </Label>
               <Slider
                 value={[temperature]}
                 onValueChange={([v]) => setTemperature(v)}
@@ -508,7 +735,10 @@ export default function ProjectDetailPage() {
 
             {/* Min quality */}
             <div className="grid gap-2">
-              <Label>Min Quality Score: {(minQuality * 100).toFixed(0)}%</Label>
+              <Label>
+                Min Quality Score: {(minQuality * 100).toFixed(0)}%
+                <InfoTooltip text="Minimum quality threshold for generated pairs. Pairs scoring below this are discarded. Higher = fewer but better quality pairs." />
+              </Label>
               <Slider
                 value={[minQuality]}
                 onValueChange={([v]) => setMinQuality(v)}
@@ -520,9 +750,29 @@ export default function ProjectDetailPage() {
 
             <Separator />
 
+            {/* Per-source chunk limits */}
+            <div className="grid gap-2">
+              <Label>
+                PDF Chunk Limit: {pdfChunkLimit === 0 ? 'Unlimited' : pdfChunkLimit}
+                <InfoTooltip text="Maximum number of chunks to use from uploaded PDF/DOCX files. Set to 0 for no limit. Useful when you want to cap PDF contributions." />
+              </Label>
+              <Slider
+                value={[pdfChunkLimit]}
+                onValueChange={([v]) => setPdfChunkLimit(v)}
+                min={0}
+                max={500}
+                step={10}
+              />
+            </div>
+
+            <Separator />
+
             {/* PubMed */}
             <div className="flex items-center justify-between">
-              <Label htmlFor="pubmed-toggle">Include PubMed Articles</Label>
+              <Label htmlFor="pubmed-toggle">
+                Include PubMed Articles
+                <InfoTooltip text="Fetch and process articles from PubMed/NCBI to supplement your uploaded documents. Requires an email address for NCBI API." />
+              </Label>
               <Switch
                 id="pubmed-toggle"
                 checked={includePubmed}
@@ -532,23 +782,39 @@ export default function ProjectDetailPage() {
             {includePubmed && (
               <>
                 <div className="grid gap-2">
-                  <Label>PubMed Email (required by NCBI)</Label>
+                  <Label>
+                    PubMed Email (required by NCBI)
+                    <InfoTooltip text="NCBI requires an email address for PubMed API access. They use it to contact you if your usage patterns are unusual." />
+                  </Label>
                   <Input
                     placeholder="your-email@example.com"
                     value={pubmedEmail}
                     onChange={(e) => setPubmedEmail(e.target.value)}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    NCBI requires an email address for PubMed API access.
-                  </p>
                 </div>
                 <div className="grid gap-2">
-                  <Label>Max PubMed Articles: {pubmedMax}</Label>
+                  <Label>
+                    Max PubMed Articles: {pubmedMax}
+                    <InfoTooltip text="Maximum number of PubMed articles to fetch. More articles = more diverse content but longer processing time." />
+                  </Label>
                   <Slider
                     value={[pubmedMax]}
                     onValueChange={([v]) => setPubmedMax(v)}
                     min={10}
                     max={5000}
+                    step={10}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>
+                    PubMed Chunk Limit: {pubmedChunkLimit === 0 ? 'Unlimited' : pubmedChunkLimit}
+                    <InfoTooltip text="Maximum number of chunks to use from PubMed articles. Set to 0 for no limit. Useful to ensure PDF sources aren't overwhelmed." />
+                  </Label>
+                  <Slider
+                    value={[pubmedChunkLimit]}
+                    onValueChange={([v]) => setPubmedChunkLimit(v)}
+                    min={0}
+                    max={500}
                     step={10}
                   />
                 </div>
@@ -559,9 +825,9 @@ export default function ProjectDetailPage() {
             <Button variant="outline" onClick={() => setConfigOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleStartGeneration} disabled={startGeneration.isPending}>
+            <Button onClick={handleStartGeneration} disabled={startGeneration.isPending || !!keyMissing}>
               <Settings2 className="mr-2 h-4 w-4" />
-              {startGeneration.isPending ? 'Starting…' : 'Start Generation'}
+              {startGeneration.isPending ? 'Starting…' : keyMissing ? 'API Key Required' : 'Start Generation'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -570,7 +836,7 @@ export default function ProjectDetailPage() {
   );
 }
 
-function JobRow({ job }: { job: GenerationJob }) {
+function JobRow({ job, onExport, isExporting }: { job: GenerationJob; onExport?: (format: ExportFormat) => void; isExporting?: boolean }) {
   const statusColor: Record<string, string> = {
     completed: 'success',
     failed: 'destructive',
@@ -587,13 +853,25 @@ function JobRow({ job }: { job: GenerationJob }) {
     in_progress: 'In Progress',
   };
 
+  const canExport = job.status === 'completed' && job.qa_pair_count != null && job.qa_pair_count > 0;
+
   return (
     <div className="flex items-center justify-between rounded-md border p-3">
       <div>
         <div className="flex items-center gap-2">
+          {job.generation_number != null && (
+            <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">
+              Gen #{job.generation_number}
+            </span>
+          )}
           <Badge variant={statusColor[job.status] as 'success' | 'destructive' | 'warning' | 'secondary' | 'info'}>
             {statusLabel[job.status] ?? job.status}
           </Badge>
+          {job.qa_pair_count != null && job.qa_pair_count > 0 && (
+            <span className="text-xs text-muted-foreground">
+              {formatNumber(job.qa_pair_count)} pairs
+            </span>
+          )}
           {job.current_message && (
             <span className="text-sm text-muted-foreground">
               {job.current_message}
@@ -604,9 +882,33 @@ function JobRow({ job }: { job: GenerationJob }) {
           <p className="mt-1 text-xs text-destructive">{job.error_message}</p>
         )}
       </div>
-      <span className="text-xs text-muted-foreground">
-        {job.completed_at ? formatDate(job.completed_at) : formatDate(job.created_at)}
-      </span>
+      <div className="flex items-center gap-2">
+        {canExport && onExport && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" disabled={isExporting}>
+                {isExporting ? (
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                ) : (
+                  <Download className="mr-1 h-3 w-3" />
+                )}
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => onExport('csv')}>CSV</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onExport('json')}>JSON</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onExport('jsonl')}>JSONL</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onExport('alpaca')}>Alpaca Format</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onExport('openai')}>OpenAI Format</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onExport('parquet')}>Parquet</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        <span className="text-xs text-muted-foreground">
+          {job.completed_at ? formatDate(job.completed_at) : formatDate(job.created_at)}
+        </span>
+      </div>
     </div>
   );
 }

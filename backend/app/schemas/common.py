@@ -34,6 +34,33 @@ class SourceType(str, Enum):
     MEDQUAD = "medquad"
     PDF_OLLAMA = "pdf_ollama"
     PUBMED_OLLAMA = "pubmed_ollama"
+    RAG_OLLAMA = "rag_ollama"
+    RAG_OPENROUTER = "rag_openrouter"
+    RAG_OPENAI = "rag_openai"
+    RAG_ANTHROPIC = "rag_anthropic"
+    RAG_GEMINI = "rag_gemini"
+    RAG_GOOGLE = "rag_google"
+    PDF_OPENROUTER = "pdf_openrouter"
+    PDF_OPENAI = "pdf_openai"
+    PDF_ANTHROPIC = "pdf_anthropic"
+    PDF_GEMINI = "pdf_gemini"
+    PDF_GOOGLE = "pdf_google"
+    PUBMED_OPENROUTER = "pubmed_openrouter"
+    PUBMED_OPENAI = "pubmed_openai"
+    PUBMED_ANTHROPIC = "pubmed_anthropic"
+    PUBMED_GEMINI = "pubmed_gemini"
+    PUBMED_GOOGLE = "pubmed_google"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "SourceType | None":
+        """Allow any string value to pass validation — new source types are
+        generated dynamically from provider+method combinations."""
+        if isinstance(value, str):
+            obj = str.__new__(cls, value)
+            obj._value_ = value
+            obj._name_ = value.upper()
+            return obj
+        return None
 
 
 class ValidationStatus(str, Enum):

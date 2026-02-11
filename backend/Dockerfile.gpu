@@ -1,0 +1,57 @@
+# GPU-accelerated Dockerfile — requires NVIDIA Container Toolkit
+# Usage: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
+FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8 \
+    PYTHONIOENCODING=utf-8 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Python 3.11 + system dependencies + locale
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    locales \
+    python3.11 \
+    python3.11-venv \
+    python3.11-dev \
+    python3-pip \
+    gcc \
+    g++ \
+    poppler-utils \
+    tesseract-ocr \
+    libmagic1 \
+    && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen \
+    && locale-gen en_US.UTF-8 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Use python3.11 as default
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+
+# Create non-root user
+RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser
+
+WORKDIR /app
+
+# Install Python dependencies (GPU variants)
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt && \
+    # Install PyTorch with CUDA 12.1 support (overrides CPU-only version from sentence-transformers)
+    pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu121 && \
+    # Install FAISS GPU (compatible with CUDA 12.x)
+    pip install --no-cache-dir faiss-gpu-cu12 2>/dev/null || pip install --no-cache-dir faiss-gpu==1.7.2 || true
+
+# Copy application code
+COPY . .
+
+# Create data directories
+RUN mkdir -p /app/data/uploads /app/data/outputs /app/data/faiss && \
+    chown -R appuser:appuser /app
+
+USER appuser
+
+EXPOSE 8000
+
+# Default: run FastAPI with uvicorn
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

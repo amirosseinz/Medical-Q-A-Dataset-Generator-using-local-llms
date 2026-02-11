@@ -9,12 +9,26 @@ import type {
   QAPair,
   QAPairUpdate,
   QAPairStats,
+  EnhancedAnalytics,
   GenerationConfig,
   GenerationJob,
+  GenerationProvider,
   ExportRequest,
   OllamaStatus,
   PaginatedResponse,
   ValidationStatus,
+  LLMReviewResponse,
+  LLMProvider,
+  LLMProviderConfig,
+  LLMProviderCreate,
+  LLMProviderUpdate,
+  LLMProviderTestResult,
+  ReviewStartRequest,
+  ReviewSession,
+  FactCheckResult,
+  CostEstimate,
+  AutoApproveWorkflowRequest,
+  AcceptSuggestionResult,
 } from '@/types';
 
 const BASE = '/api/v1';
@@ -25,7 +39,7 @@ async function request<T>(
   options?: RequestInit,
 ): Promise<T> {
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: { 'Content-Type': 'application/json; charset=utf-8', ...options?.headers },
     ...options,
   });
   if (!res.ok) {
@@ -51,7 +65,7 @@ export const projectsApi = {
     }),
   update: (id: string, data: ProjectUpdate) =>
     request<Project>(`${BASE}/projects/${id}`, {
-      method: 'PATCH',
+      method: 'PUT',
       body: JSON.stringify(data),
     }),
   delete: (id: string) =>
@@ -98,6 +112,12 @@ export const generationApi = {
     request<GenerationJob>(`${BASE}/jobs/${jobId}/progress`),
   listJobs: (projectId: string) =>
     request<GenerationJob[]>(`${BASE}/projects/${projectId}/jobs`),
+  providers: () =>
+    request<GenerationProvider[]>(`${BASE}/generation/providers`),
+  validateKey: (provider: string) =>
+    request<{ provider: string; has_key: boolean; message: string }>(
+      `${BASE}/generation/validate-key/${encodeURIComponent(provider)}`,
+    ),
 };
 
 // ---- QA Pairs (routes match backend: /qa-pairs/{id} for mutate, /projects/{id}/qa-pairs for list) ----
@@ -109,6 +129,7 @@ export const qaPairsApi = {
       page_size?: number;
       validation_status?: ValidationStatus | 'all';
       source_type?: string;
+      source_document?: string;
       min_quality_score?: number;
       search?: string;
       sort_by?: string;
@@ -126,6 +147,8 @@ export const qaPairsApi = {
   },
   stats: (projectId: string) =>
     request<QAPairStats>(`${BASE}/projects/${projectId}/qa-pairs/stats`),
+  analytics: (projectId: string) =>
+    request<EnhancedAnalytics>(`${BASE}/projects/${projectId}/qa-pairs/analytics`),
   update: (projectId: string, pairId: string, data: QAPairUpdate) =>
     request<QAPair>(`${BASE}/qa-pairs/${pairId}`, {
       method: 'PUT',
@@ -198,4 +221,110 @@ export const exportApi = {
 export const ollamaApi = {
   status: () => request<OllamaStatus>(`${BASE}/ollama/status`),
   models: () => request<OllamaStatus>(`${BASE}/ollama/models`),
+};
+
+// ---- LLM Review ----
+export const reviewApi = {
+  providers: () => request<LLMProvider[]>(`${BASE}/review/providers`),
+  // Legacy sync review (small batches)
+  review: (
+    projectId: string,
+    data: {
+      qa_pair_ids: string[];
+      provider: string;
+      api_key?: string;
+      model?: string;
+      ollama_url?: string;
+    },
+  ) =>
+    request<LLMReviewResponse>(`${BASE}/projects/${projectId}/review`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  // Session-based async review (recommended for large batches)
+  startSession: (projectId: string, data: ReviewStartRequest) =>
+    request<ReviewSession>(`${BASE}/projects/${projectId}/review/start`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getSession: (sessionId: string) =>
+    request<ReviewSession>(`${BASE}/review/sessions/${sessionId}`),
+  cancelSession: (sessionId: string) =>
+    request<ReviewSession>(`${BASE}/review/sessions/${sessionId}/cancel`, {
+      method: 'POST',
+    }),
+  resumeSession: (sessionId: string) =>
+    request<ReviewSession>(`${BASE}/review/sessions/${sessionId}/resume`, {
+      method: 'POST',
+    }),
+  estimateCost: (pairCount: number, provider: string, model?: string) =>
+    request<CostEstimate>(
+      `${BASE}/review/estimate-cost?pair_count=${pairCount}&provider=${provider}${model ? `&model=${model}` : ''}`,
+    ),
+  autoApprove: (projectId: string, minOverall: number = 7.0) =>
+    request<{ approved: number; rejected: number; message: string }>(
+      `${BASE}/projects/${projectId}/review/auto-approve?min_overall=${minOverall}`,
+      { method: 'POST' },
+    ),
+  factCheck: (
+    projectId: string,
+    data: {
+      qa_pair_id: string;
+      provider: string;
+      api_key_id?: string;
+      api_key?: string;
+      model?: string;
+      ollama_url?: string;
+    },
+  ) =>
+    request<FactCheckResult>(`${BASE}/projects/${projectId}/fact-check`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  autoApproveWorkflow: (projectId: string, data: AutoApproveWorkflowRequest) =>
+    request<ReviewSession>(`${BASE}/projects/${projectId}/review/auto-approve-workflow`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  acceptSuggestion: (pairId: string) =>
+    request<AcceptSuggestionResult>(`${BASE}/qa-pairs/${pairId}/accept-suggestion`, {
+      method: 'POST',
+    }),
+  revertSuggestion: (pairId: string) =>
+    request<AcceptSuggestionResult>(`${BASE}/qa-pairs/${pairId}/revert-suggestion`, {
+      method: 'POST',
+    }),
+};
+
+// ---- LLM Providers (API Key Management) ----
+export const llmProvidersApi = {
+  list: () =>
+    request<LLMProviderConfig[]>(`${BASE}/settings/llm-providers`),
+  create: (data: LLMProviderCreate) =>
+    request<LLMProviderConfig>(`${BASE}/settings/llm-providers`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  update: (id: string, data: LLMProviderUpdate) =>
+    request<LLMProviderConfig>(`${BASE}/settings/llm-providers/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  delete: (id: string) =>
+    request<void>(`${BASE}/settings/llm-providers/${id}`, {
+      method: 'DELETE',
+    }),
+  test: (id: string) =>
+    request<LLMProviderTestResult>(`${BASE}/settings/llm-providers/${id}/test`, {
+      method: 'POST',
+    }),
+  refreshModels: (id: string, force: boolean = false) =>
+    request<LLMProviderTestResult>(
+      `${BASE}/settings/llm-providers/${id}/refresh-models?force=${force}`,
+      { method: 'POST' },
+    ),
+  getModels: (id: string) =>
+    request<{ models: string[]; model_details: Record<string, unknown>; fetched_at: string | null; cached: boolean }>(
+      `${BASE}/settings/llm-providers/${id}/models`,
+    ),
 };

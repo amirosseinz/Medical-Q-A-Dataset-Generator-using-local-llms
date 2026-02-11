@@ -1,6 +1,10 @@
 # ---- Build stage ----
 FROM node:20-alpine AS build
 
+# Ensure Node uses UTF-8
+ENV LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8
+
 WORKDIR /app
 
 COPY package.json ./
@@ -11,6 +15,10 @@ RUN npm run build
 
 # ---- Production stage ----
 FROM nginx:alpine
+
+# Set locale for nginx process
+ENV LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8
 
 # Copy built assets
 COPY --from=build /app/dist /usr/share/nginx/html

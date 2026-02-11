@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -16,7 +15,6 @@ from app.services.export_service import (
     QAPairForExport,
     export_dataset,
     split_dataset,
-    to_training_csv,
     EXTENSIONS,
 )
 
@@ -36,6 +34,8 @@ def export_project(
 
     # Build query with filters
     query = db.query(QAPair).filter(QAPair.project_id == project_id)
+    if request.generation_job_id:
+        query = query.filter(QAPair.generation_job_id == request.generation_job_id)
     if request.validation_statuses:
         query = query.filter(QAPair.validation_status.in_([s.value for s in request.validation_statuses]))
     if request.min_quality_score is not None:
@@ -52,6 +52,7 @@ def export_project(
             source_type=qa.source_type,
             quality_score=qa.quality_score,
             validation_status=qa.validation_status,
+            metadata=qa.metadata_json,
         )
         for qa in qa_records
     ]

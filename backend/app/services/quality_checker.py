@@ -28,15 +28,20 @@ class CheckResult:
 # ── Individual checks ──────────────────────────────────────────────────
 
 def check_length(question: str, answer: str) -> CheckResult:
-    """Validate question (15-200 chars) and answer (30-500 chars) lengths."""
+    """Validate question and answer lengths.
+
+    Relaxed thresholds:
+      - Question: 10-500 chars (ideal 20-200)
+      - Answer: 20-3000 chars (ideal 50-1000)
+    """
     q_len = len(question)
     a_len = len(answer)
-    q_ok = 15 <= q_len <= 500
-    a_ok = 30 <= a_len <= 2000
+    q_ok = 10 <= q_len <= 500
+    a_ok = 20 <= a_len <= 3000
 
     # Score: 1.0 if in ideal range, degrades outside
-    q_score = 1.0 if 20 <= q_len <= 200 else (0.5 if q_ok else 0.0)
-    a_score = 1.0 if 50 <= a_len <= 500 else (0.5 if a_ok else 0.0)
+    q_score = 1.0 if 20 <= q_len <= 200 else (0.7 if q_ok else 0.0)
+    a_score = 1.0 if 50 <= a_len <= 1000 else (0.6 if a_ok else 0.0)
     score = (q_score + a_score) / 2
 
     return CheckResult(
@@ -79,24 +84,116 @@ BAD_KEYWORDS = [
     "I apologize",
 ]
 
+# Phrases that indicate the answer is referencing source material instead of
+# being self-contained.  Checked case-insensitively.
+FORBIDDEN_SOURCE_PHRASES = [
+    "according to the text",
+    "according to the passage",
+    "according to the article",
+    "according to the study",
+    "according to the document",
+    "according to the source",
+    "the text states",
+    "the text mentions",
+    "the text describes",
+    "the text explains",
+    "the text indicates",
+    "the text suggests",
+    "the text notes",
+    "the passage states",
+    "the passage mentions",
+    "the passage describes",
+    "the article states",
+    "the article mentions",
+    "the study found",
+    "the study states",
+    "the study shows",
+    "the study suggests",
+    "the study reports",
+    "as mentioned in the text",
+    "as stated in the text",
+    "as described in the text",
+    "as noted in the text",
+    "based on the passage",
+    "based on the text",
+    "based on the article",
+    "based on the given text",
+    "based on the provided text",
+    "in the text",
+    "in the passage",
+    "in the given text",
+    "in the provided text",
+    "from the text",
+    "from the passage",
+    "the given text",
+    "the provided text",
+    "the above text",
+    "this text",
+    "this passage",
+]
+
 
 def check_content_quality(question: str, answer: str) -> CheckResult:
-    """Check for generic AI refusal patterns and low-quality indicators."""
+    """Check for generic AI refusal patterns and low-quality indicators.
+
+    Source-reference phrases are penalised in score but no longer cause an
+    automatic FAIL — the quality score already captures the issue and the
+    configurable ``min_quality_score`` threshold handles gating.
+
+    Citation artifacts ([Evidence N], [1], etc.) are treated as a hard fail
+    since they indicate the answer is not self-contained.
+    """
     issues: list[str] = []
+    # Critical issues (will fail the check)
+    critical = False
 
     for kw in BAD_KEYWORDS:
         if kw.lower() in answer.lower():
             issues.append(f"Contains bad keyword: {kw}")
+            critical = True
+
+    # Check for citation artifacts that should have been stripped by the parser
+    # If they survive to quality checking, the answer is not self-contained
+    _CITATION_RE = re.compile(
+        r"\[Evidence\s*\d+\]|\[Ref(?:erence)?\s*\d+\]|\[Source\s*\d+\]|\(\s*Evidence\s*\d+\s*\)",
+        re.IGNORECASE,
+    )
+    citation_matches = _CITATION_RE.findall(answer)
+    if citation_matches:
+        issues.append(f"Contains {len(citation_matches)} citation artifact(s): {citation_matches[:3]}")
+        critical = True
+
+    # Check for forbidden source-reference phrases (soft penalty only)
+    answer_lower = answer.lower()
+    question_lower = question.lower()
+    source_ref_count = 0
+    for phrase in FORBIDDEN_SOURCE_PHRASES:
+        if phrase in answer_lower:
+            source_ref_count += 1
+        if phrase in question_lower:
+            source_ref_count += 1
+    if source_ref_count > 0:
+        issues.append(f"Contains {source_ref_count} source-reference phrase(s)")
 
     # Check for repetitive content
     words = answer.lower().split()
     if len(words) > 10:
         unique_ratio = len(set(words)) / len(words)
-        if unique_ratio < 0.3:
+        if unique_ratio < 0.25:
             issues.append(f"Low word diversity: {unique_ratio:.2f}")
+            critical = True
 
-    passed = len(issues) == 0
-    score = 1.0 if passed else max(0.0, 1.0 - len(issues) * 0.3)
+    passed = not critical
+    # Score penalty: BAD_KEYWORDS = 0.3 each, citations = 0.4, source refs = 0.1 per phrase, low diversity = 0.3
+    penalty = 0.0
+    if any("bad keyword" in i.lower() for i in issues):
+        penalty += 0.3 * sum(1 for i in issues if "bad keyword" in i.lower())
+    if any("citation artifact" in i.lower() for i in issues):
+        penalty += 0.4
+    penalty += source_ref_count * 0.1
+    if any("word diversity" in i.lower() for i in issues):
+        penalty += 0.3
+    score = max(0.0, 1.0 - penalty)
 
     return CheckResult(
         check_type="relevance",
@@ -109,9 +206,14 @@ def check_content_quality(question: str, answer: str) -> CheckResult:
 def check_duplicate(
     question: str,
     existing_questions: list[str],
-    threshold: float = 0.85,
+    threshold: float = 0.92,
 ) -> CheckResult:
-    """Check if question is a near-duplicate of any existing question."""
+    """Check if question is a near-duplicate of any existing question.
+
+    Threshold raised to 0.92 (from 0.85) to allow more semantic variation \u2014
+    only truly paraphrased questions are rejected.  The over-generation
+    strategy compensates by producing 3x more prompts.
+    """
     q_normalized = re.sub(r"\s+", " ", question.lower().strip())
 
     for existing in existing_questions:
@@ -167,12 +269,13 @@ def evaluate_qa_pair(
     question: str,
     answer: str,
     existing_questions: list[str] | None = None,
+    min_quality_score: float = 0.0,
 ) -> tuple[bool, float, list[CheckResult]]:
     """Run all quality checks on a Q&A pair.
 
     Returns
     -------
-    passed : bool — True if all critical checks pass
+    passed : bool — True if no critical checks fail AND score >= min_quality_score
     quality_score : float 0-1
     checks : list of individual CheckResult objects
     """
@@ -185,7 +288,23 @@ def evaluate_qa_pair(
     if existing_questions is not None:
         checks.append(check_duplicate(question, existing_questions))
 
-    all_passed = all(c.passed for c in checks)
+    # A pair passes if:
+    #  1. No critical checks fail (length, duplicate — format and content-quality
+    #     are "soft" and primarily influence the score)
+    #  2. Quality score meets the configurable threshold
+    critical_types = {"length", "duplicate", "relevance"}
+    critical_passed = all(c.passed for c in checks if c.check_type in critical_types)
     quality_score = compute_quality_score(checks)
+    passed = critical_passed and quality_score >= min_quality_score
 
-    return all_passed, quality_score, checks
+    # Transparent scoring log — always emitted at DEBUG level
+    breakdown = " | ".join(
+        f"{c.check_type}={c.score:.2f}{'*' if not c.passed else ''}"
+        for c in checks
+    )
+    logger.debug(
+        "QA score=%.3f (pass=%s, crit=%s, min=%.2f): %s",
+        quality_score, passed, critical_passed, min_quality_score, breakdown,
+    )
+
+    return passed, quality_score, checks

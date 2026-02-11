@@ -1,6 +1,8 @@
 """Q&A pair CRUD, search, filter, and batch operations."""
 from __future__ import annotations
 
+from collections import defaultdict
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -12,8 +14,10 @@ from app.schemas.qa_pair import (
     QAPairUpdate,
     QAPairBatchUpdate,
     QAPairStats,
+    EnhancedAnalytics,
+    FileAnalytics,
 )
-from app.schemas.common import PaginatedResponse, ValidationStatus, SourceType
+from app.schemas.common import PaginatedResponse
 
 router = APIRouter()
 
@@ -24,18 +28,25 @@ def list_qa_pairs(
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=200),
     source_type: str | None = None,
+    source_document: str | None = None,
     validation_status: str | None = None,
     min_quality_score: float | None = Query(None, ge=0.0, le=1.0),
     max_quality_score: float | None = Query(None, ge=0.0, le=1.0),
     search: str | None = None,
     model_used: str | None = None,
+    generation_job_id: str | None = None,
     db: Session = Depends(get_db),
 ):
     """List Q&A pairs with filtering, search, and pagination."""
     query = db.query(QAPair).filter(QAPair.project_id == project_id)
 
+    if generation_job_id:
+        query = query.filter(QAPair.generation_job_id == generation_job_id)
+
     if source_type:
         query = query.filter(QAPair.source_type == source_type)
+    if source_document:
+        query = query.filter(QAPair.source_document == source_document)
     if validation_status:
         query = query.filter(QAPair.validation_status == validation_status)
     if min_quality_score is not None:
@@ -100,6 +111,16 @@ def get_qa_pair_stats(project_id: str, db: Session = Depends(get_db)):
         .all()
     )
 
+    # Source document breakdown (top 50)
+    source_doc_counts = dict(
+        db.query(QAPair.source_document, func.count(QAPair.id))
+        .filter(QAPair.project_id == project_id, QAPair.source_document.isnot(None))
+        .group_by(QAPair.source_document)
+        .order_by(func.count(QAPair.id).desc())
+        .limit(50)
+        .all()
+    )
+
     return QAPairStats(
         total=total,
         approved=approved,
@@ -108,6 +129,81 @@ def get_qa_pair_stats(project_id: str, db: Session = Depends(get_db)):
         avg_quality_score=round(avg_score, 4) if avg_score else None,
         by_source_type=source_counts,
         by_model=model_counts,
+        by_source_document=source_doc_counts,
+    )
+
+
+@router.get("/projects/{project_id}/qa-pairs/analytics", response_model=EnhancedAnalytics)
+def get_enhanced_analytics(project_id: str, db: Session = Depends(get_db)):
+    """Get enhanced analytics with per-file breakdown, quality histogram, and timeline."""
+    pairs = (
+        db.query(QAPair)
+        .filter(QAPair.project_id == project_id)
+        .all()
+    )
+
+    # Per-file breakdown using source_document field (preferred) or metadata fallback
+    file_data: dict[str, dict] = defaultdict(lambda: {
+        "pair_count": 0, "total_quality": 0.0, "quality_count": 0,
+        "approved": 0, "rejected": 0, "pending": 0, "source_type": "unknown",
+    })
+    quality_buckets = [0] * 10  # 0.0-0.1, 0.1-0.2, ..., 0.9-1.0
+    day_counts: dict[str, int] = defaultdict(int)
+
+    for qa in pairs:
+        # Per-file: prefer source_document column, fall back to metadata
+        meta = qa.metadata_json or {}
+        fname = qa.source_document or meta.get("original_file") or meta.get("source_filename") or meta.get("source_file") or f"({qa.source_type})"
+        entry = file_data[fname]
+        entry["pair_count"] += 1
+        entry["source_type"] = meta.get("original_source", qa.source_type)
+        if qa.quality_score is not None:
+            entry["total_quality"] += qa.quality_score
+            entry["quality_count"] += 1
+            # Quality histogram
+            bucket = min(int(qa.quality_score * 10), 9)
+            quality_buckets[bucket] += 1
+        if qa.validation_status == "approved":
+            entry["approved"] += 1
+        elif qa.validation_status == "rejected":
+            entry["rejected"] += 1
+        else:
+            entry["pending"] += 1
+
+        # Timeline
+        if qa.created_at:
+            day = qa.created_at.strftime("%Y-%m-%d")
+            day_counts[day] += 1
+
+    by_file = [
+        FileAnalytics(
+            filename=fname,
+            source_type=data["source_type"],
+            pair_count=data["pair_count"],
+            avg_quality=round(data["total_quality"] / data["quality_count"], 4)
+            if data["quality_count"] > 0 else None,
+            approved=data["approved"],
+            rejected=data["rejected"],
+            pending=data["pending"],
+        )
+        for fname, data in sorted(file_data.items(), key=lambda x: -x[1]["pair_count"])
+    ]
+
+    quality_histogram = [
+        {"range": f"{i/10:.1f}-{(i+1)/10:.1f}", "count": quality_buckets[i]}
+        for i in range(10)
+        if quality_buckets[i] > 0
+    ]
+
+    generation_timeline = [
+        {"date": date, "count": count}
+        for date, count in sorted(day_counts.items())
+    ]
+
+    return EnhancedAnalytics(
+        by_file=by_file,
+        quality_histogram=quality_histogram,
+        generation_timeline=generation_timeline,
     )
 
 
