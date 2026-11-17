@@ -140,6 +140,8 @@ def to_json(pairs: list[QAPairForExport]) -> str:
             obj["citation_chunk_ids"] = p.citation_chunk_ids
             obj["retrieval_scores"] = p.retrieval_scores
             obj["citations"] = p.citations
+            if retrieved_context := (p.metadata or {}).get("retrieved_context"):
+                obj["retrieved_context"] = retrieved_context
         data.append(obj)
     return json.dumps(data, indent=2, ensure_ascii=False)
 
@@ -154,6 +156,8 @@ def to_jsonl(pairs: list[QAPairForExport]) -> str:
             obj["query_term"] = p.query_term
             obj["citation_chunk_ids"] = p.citation_chunk_ids
             obj["retrieval_scores"] = p.retrieval_scores
+            if retrieved_context := (p.metadata or {}).get("retrieved_context"):
+                obj["retrieved_context"] = retrieved_context
         lines.append(json.dumps(obj, ensure_ascii=False))
     return "\n".join(lines) + "\n"
 

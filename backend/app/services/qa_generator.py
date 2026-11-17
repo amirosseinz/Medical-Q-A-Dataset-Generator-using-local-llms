@@ -623,6 +623,7 @@ class GenerationPipeline:
                         "citation_chunk_ids": meta.get("citation_ids", []),
                         "citations": meta.get("citation_metadata", []),
                         "source_filename": meta.get("source_filename"),
+                        "retrieved_context": meta.get("retrieved_context"),
                     },
                 )
             else:

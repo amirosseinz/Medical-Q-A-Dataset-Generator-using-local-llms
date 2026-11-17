@@ -121,21 +121,19 @@ def build_prompt(
 
 # ── RAG-aware prompt templates ─────────────────────────────────────────
 #
-# These templates receive multiple retrieved evidence chunks (already formatted
-# as "[Evidence 1] ... [Evidence 2] ...") and REQUIRE the LLM to:
-#   1. Base the answer ONLY on the provided evidence.
-#   2. Cite which evidence supports the answer (e.g. [Evidence 1]).
-#   3. Output "NOT FOUND" if the evidence is insufficient.
+# These templates take formatted evidence passages from the retriever and
+# ask for a scoped, standalone answer or "NOT FOUND".
 #
 
 _RAG_SHARED_RULES = """CRITICAL RULES:
 - You may ONLY use information present in the EVIDENCE blocks above.
 - The answer must be **completely self-contained** — a reader must be able to understand it without access to any source material or evidence blocks.
 - NEVER include citation markers like [Evidence 1], [Evidence 2], [1], [2], or any bracketed references in your answer.
-- NEVER use phrases like "according to the text", "the text states", "based on the passage", "as mentioned", "the study found", "the article describes", "the evidence shows", or any reference to source material.
-- Write the answer as if you are a medical textbook author stating established medical knowledge. The answer should read as an authoritative standalone statement.
-- If the provided evidence does NOT contain enough information to answer a high-quality medical question about the topic, output EXACTLY: NOT FOUND
-- Do NOT fabricate, hallucinate, or extrapolate beyond what the evidence supports.
+- Preserve the study population, setting, measured outcome, and uncertainty whenever they qualify a finding. Scope the question to the same population or setting when relevant.
+- Make the answer readable on its own. Identify a finding's study design or population explicitly, without referring to an unnamed passage or study.
+- Preserve the distinction between association and causation, and between an inconclusive result and evidence of no effect.
+- If the evidence is insufficient or materially conflicting for the proposed answer, output EXACTLY: NOT FOUND
+- Do not extrapolate a single study finding to general medical guidance.
 - Difficulty level: {difficulty}"""
 
 RAG_PROMPT_TEMPLATES: dict[str, str] = {
@@ -150,7 +148,7 @@ RETRIEVED EVIDENCE:
 
 Output Format (exactly as shown):
 Question: [Write one high-quality, factual medical question]
-Answer: [Write a complete, self-contained answer that stands alone as medical knowledge]
+Answer: [Write a complete, self-contained answer within the scope of the evidence]
 
 Generate only one QA pair. Do not include any introductory or closing remarks.""",
 
@@ -163,11 +161,11 @@ RETRIEVED EVIDENCE:
 
 """ + _RAG_SHARED_RULES + """
 - The question should start with "Why", "How does", "What mechanism", or similar reasoning prompts.
-- The answer must explain the reasoning chain as an independent, authoritative medical explanation.
+- The answer must explain the reasoning supported by the evidence, preserving uncertainty about mechanisms.
 
 Output Format (exactly as shown):
 Question: [Write one question requiring clinical reasoning]
-Answer: [Write a detailed, self-contained answer explaining the reasoning as established medical knowledge]
+Answer: [Write a self-contained answer explaining the supported reasoning]
 
 Generate only one QA pair. Do not include any introductory or closing remarks.""",
 
@@ -181,11 +179,11 @@ RETRIEVED EVIDENCE:
 """ + _RAG_SHARED_RULES + """
 - Formulate a question that compares two or more conditions, treatments, drugs, or approaches.
 - Use phrases like "How does X compare to Y", "What are the differences between", "Which is more effective".
-- The answer must clearly outline similarities and differences as an authoritative medical comparison.
+- The answer must preserve which populations, comparisons, and outcomes the evidence actually addresses.
 
 Output Format (exactly as shown):
 Question: [Write one comparison question]
-Answer: [Write a structured, self-contained comparison answer presenting established medical knowledge]
+Answer: [Write a self-contained comparison supported by the provided evidence]
 
 Generate only one QA pair. Do not include any introductory or closing remarks.""",
 
@@ -198,11 +196,11 @@ RETRIEVED EVIDENCE:
 
 """ + _RAG_SHARED_RULES + """
 - Create a realistic clinical scenario question (e.g., "A patient presents with X, what is the recommended approach?").
-- The answer must describe the appropriate clinical action as an authoritative medical recommendation.
+- Use this question type only if the passages explicitly contain a recommendation for the described scenario and population. Otherwise output EXACTLY: NOT FOUND
 
 Output Format (exactly as shown):
 Question: [Write one clinical scenario/application question]
-Answer: [Write a practical, self-contained clinical answer presenting established medical guidance]
+Answer: [Summarise the supported recommendation and its stated conditions]
 
 Generate only one QA pair. Do not include any introductory or closing remarks.""",
 }

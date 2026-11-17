@@ -1,19 +1,15 @@
-# LLM-driven medical Q&A dataset generation with retrieval grounding and quality filtering
+# MedQA Forge
 
-**An end-to-end AI pipeline for generating, validating, and curating high-quality medical question-answer datasets from scientific literature.**
+MedQA Forge generates draft medical question–answer datasets from scientific literature and gives reviewers a way to inspect their sources. It ingests PDFs, DOCX files and PubMed records, retrieves passages through a biomedical vector index, and sends the passages to a local or cloud model. The app filters drafts for completeness, format and duplicates, then queues them for human review and export.
 
-MedQA Forge ingests medical documents (PDFs, DOCX, PubMed articles), builds a domain-specific vector index using PubMedBERT embeddings and FAISS, then leverages local or cloud LLMs to produce grounded Q&A pairs. Every pair passes through a multi-stage quality pipeline — length, format, medical relevance, semantic deduplication — before landing in a review dashboard where human experts approve, reject, or refine the output. The result is a ready-to-export dataset for fine-tuning medical language models.
+The [evidence audit](research/README.md) measures how candidate verification methods handle supported, contradicted and insufficient claims on the public SciFact development data.
 
 ---
 <img width="1918" height="986" alt="image" src="https://github.com/user-attachments/assets/7ffb0c63-ff60-4886-a040-97d845aa1c9a" />
 
 ## Why This Exists
 
-High-quality medical Q&A data is the bottleneck for training domain-specific LLMs. Manual curation is slow and expensive. Existing synthetic data tools either ignore source grounding (hallucination risk) or lack quality filtering (noise). MedQA Forge closes both gaps:
-
-- **Retrieval-Augmented Generation** grounds every question in real clinical text, reducing hallucination.
-- **Adaptive over-generation with multi-stage filtering** ensures only clinically coherent, non-duplicate pairs survive.
-- **Human-in-the-loop review** with optional LLM-assisted scoring preserves expert oversight without bottlenecking throughput.
+Producing a reviewable research dataset requires both usable drafts and traceability to the source material. New RAG-generated rows carry the ordered passage IDs and SHA-256 hashes for the context assembled for generation. JSON and JSONL exports expose this as `retrieved_context` with status `retrieval_only`. The quality score measures draft usability and the evidence audit evaluates support separately.
 
 The system is designed for researchers preparing fine-tuning datasets, teams building clinical NLP tools, and anyone who needs structured medical Q&A data at scale.
 
@@ -127,7 +123,7 @@ Celery Worker picks up task
   │   → semantic dedup (embedding cosine similarity) → composite scoring
   │
   └─► Phase 7: Storage & Completion
-      Accepted pairs stored with full provenance metadata
+      Accepted drafts stored with retrieval metadata
       → Job marked complete → WebSocket notification to frontend
 ```
 
@@ -135,7 +131,7 @@ Celery Worker picks up task
 
 ## RAG Pipeline Deep Dive
 
-The Retrieval-Augmented Generation pipeline is the core differentiator — it grounds Q&A generation in actual medical literature rather than relying on the LLM's parametric knowledge.
+The retrieval pipeline supplies passages from the source corpus to the generator and records the context used by the prompt builder.
 
 ### Chunking Strategy
 

@@ -1,0 +1,385 @@
+{
+  "dev_claims": 300,
+  "dev_count": 339,
+  "dev_documents": 283,
+  "excluded_train_claims": 272,
+  "fixed_coverage_rankings": {
+    "claim_context": [
+      {
+        "accepted": 34,
+        "false_accept_fraction": 0.2941176470588235,
+        "false_accepts": 10,
+        "supported_retention": 0.17391304347826086,
+        "target_coverage": 0.1
+      },
+      {
+        "accepted": 68,
+        "false_accept_fraction": 0.3529411764705882,
+        "false_accepts": 24,
+        "supported_retention": 0.3188405797101449,
+        "target_coverage": 0.2
+      },
+      {
+        "accepted": 136,
+        "false_accept_fraction": 0.4411764705882353,
+        "false_accepts": 60,
+        "supported_retention": 0.5507246376811594,
+        "target_coverage": 0.4
+      },
+      {
+        "accepted": 203,
+        "false_accept_fraction": 0.48275862068965514,
+        "false_accepts": 98,
+        "supported_retention": 0.7608695652173914,
+        "target_coverage": 0.6
+      },
+      {
+        "accepted": 271,
+        "false_accept_fraction": 0.5424354243542435,
+        "false_accepts": 147,
+        "supported_retention": 0.8985507246376812,
+        "target_coverage": 0.8
+      },
+      {
+        "accepted": 339,
+        "false_accept_fraction": 0.5929203539823009,
+        "false_accepts": 201,
+        "supported_retention": 1.0,
+        "target_coverage": 1.0
+      }
+    ],
+    "claim_only": [
+      {
+        "accepted": 34,
+        "false_accept_fraction": 0.5,
+        "false_accepts": 17,
+        "supported_retention": 0.12318840579710146,
+        "target_coverage": 0.1
+      },
+      {
+        "accepted": 68,
+        "false_accept_fraction": 0.5147058823529411,
+        "false_accepts": 35,
+        "supported_retention": 0.2391304347826087,
+        "target_coverage": 0.2
+      },
+      {
+        "accepted": 136,
+        "false_accept_fraction": 0.5514705882352942,
+        "false_accepts": 75,
+        "supported_retention": 0.4420289855072464,
+        "target_coverage": 0.4
+      },
+      {
+        "accepted": 203,
+        "false_accept_fraction": 0.5566502463054187,
+        "false_accepts": 113,
+        "supported_retention": 0.6521739130434783,
+        "target_coverage": 0.6
+      },
+      {
+        "accepted": 271,
+        "false_accept_fraction": 0.5830258302583026,
+        "false_accepts": 158,
+        "supported_retention": 0.8188405797101449,
+        "target_coverage": 0.8
+      },
+      {
+        "accepted": 339,
+        "false_accept_fraction": 0.5929203539823009,
+        "false_accepts": 201,
+        "supported_retention": 1.0,
+        "target_coverage": 1.0
+      }
+    ],
+    "deberta_nli": [
+      {
+        "accepted": 34,
+        "false_accept_fraction": 0.23529411764705888,
+        "false_accepts": 8,
+        "supported_retention": 0.18840579710144928,
+        "target_coverage": 0.1
+      },
+      {
+        "accepted": 68,
+        "false_accept_fraction": 0.3529411764705882,
+        "false_accepts": 24,
+        "supported_retention": 0.3188405797101449,
+        "target_coverage": 0.2
+      },
+      {
+        "accepted": 136,
+        "false_accept_fraction": 0.42647058823529416,
+        "false_accepts": 58,
+        "supported_retention": 0.5652173913043478,
+        "target_coverage": 0.4
+      },
+      {
+        "accepted": 203,
+        "false_accept_fraction": 0.4778325123152709,
+        "false_accepts": 97,
+        "supported_retention": 0.7681159420289855,
+        "target_coverage": 0.6
+      },
+      {
+        "accepted": 271,
+        "false_accept_fraction": 0.5129151291512914,
+        "false_accepts": 139,
+        "supported_retention": 0.9565217391304348,
+        "target_coverage": 0.8
+      },
+      {
+        "accepted": 339,
+        "false_accept_fraction": 0.5929203539823009,
+        "false_accepts": 201,
+        "supported_retention": 1.0,
+        "target_coverage": 1.0
+      }
+    ]
+  },
+  "inputs_sha256": {
+    "claims_dev.jsonl": "86f0435d08fdb65d1aa41d1472684f57e6e71930626497bdf4d7a9ec1a632217",
+    "claims_train.jsonl": "f4c8fa82d8bd0653a9cc8d61a6ea48c25eacea64e90af5dbf390ebb1b74372f0",
+    "corpus.jsonl": "b8d6c89624cb2ed74dee8938effc4f5d8bd2086887880af8110d64be4ceade62"
+  },
+  "natural_context": {
+    "claim_context": {
+      "accuracy": 0.5486725663716814,
+      "by_label": {
+        "contradict": {
+          "count": 71,
+          "f1": 0.24074074074074073,
+          "precision": 0.35135135135135137,
+          "recall": 0.18309859154929578
+        },
+        "insufficient": {
+          "count": 130,
+          "f1": 0.6285714285714286,
+          "precision": 0.5866666666666667,
+          "recall": 0.676923076923077
+        },
+        "support": {
+          "count": 138,
+          "f1": 0.5862068965517241,
+          "precision": 0.5592105263157895,
+          "recall": 0.6159420289855072
+        }
+      },
+      "confusion": {
+        "contradict": {
+          "contradict": 13,
+          "insufficient": 23,
+          "support": 35
+        },
+        "insufficient": {
+          "contradict": 10,
+          "insufficient": 88,
+          "support": 32
+        },
+        "support": {
+          "contradict": 14,
+          "insufficient": 39,
+          "support": 85
+        }
+      },
+      "macro_f1": 0.4851730219546311,
+      "support_gate": {
+        "accepted": 152,
+        "coverage": 0.44837758112094395,
+        "false_accept_fraction": 0.4407894736842105,
+        "false_accepts": 67,
+        "false_accepts_contradicted": 35,
+        "false_accepts_insufficient": 32,
+        "supported_retention": 0.6159420289855072
+      }
+    },
+    "claim_only": {
+      "accuracy": 0.4306784660766962,
+      "by_label": {
+        "contradict": {
+          "count": 71,
+          "f1": 0.2,
+          "precision": 0.24489795918367346,
+          "recall": 0.16901408450704225
+        },
+        "insufficient": {
+          "count": 130,
+          "f1": 0.4235294117647059,
+          "precision": 0.432,
+          "recall": 0.4153846153846154
+        },
+        "support": {
+          "count": 138,
+          "f1": 0.528052805280528,
+          "precision": 0.48484848484848486,
+          "recall": 0.5797101449275363
+        }
+      },
+      "confusion": {
+        "contradict": {
+          "contradict": 12,
+          "insufficient": 25,
+          "support": 34
+        },
+        "insufficient": {
+          "contradict": 25,
+          "insufficient": 54,
+          "support": 51
+        },
+        "support": {
+          "contradict": 12,
+          "insufficient": 46,
+          "support": 80
+        }
+      },
+      "macro_f1": 0.38386073901507795,
+      "support_gate": {
+        "accepted": 165,
+        "coverage": 0.48672566371681414,
+        "false_accept_fraction": 0.5151515151515151,
+        "false_accepts": 85,
+        "false_accepts_contradicted": 34,
+        "false_accepts_insufficient": 51,
+        "supported_retention": 0.5797101449275363
+      }
+    },
+    "context_presence": {
+      "accuracy": 0.40707964601769914,
+      "by_label": {
+        "contradict": {
+          "count": 71,
+          "f1": 0.0,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "insufficient": {
+          "count": 130,
+          "f1": 0.0,
+          "precision": 0.0,
+          "recall": 0.0
+        },
+        "support": {
+          "count": 138,
+          "f1": 0.5786163522012578,
+          "precision": 0.40707964601769914,
+          "recall": 1.0
+        }
+      },
+      "confusion": {
+        "contradict": {
+          "contradict": 0,
+          "insufficient": 0,
+          "support": 71
+        },
+        "insufficient": {
+          "contradict": 0,
+          "insufficient": 0,
+          "support": 130
+        },
+        "support": {
+          "contradict": 0,
+          "insufficient": 0,
+          "support": 138
+        }
+      },
+      "macro_f1": 0.1928721174004193,
+      "support_gate": {
+        "accepted": 339,
+        "coverage": 1.0,
+        "false_accept_fraction": 0.5929203539823009,
+        "false_accepts": 201,
+        "false_accepts_contradicted": 71,
+        "false_accepts_insufficient": 130,
+        "supported_retention": 1.0
+      }
+    },
+    "deberta_nli": {
+      "accuracy": 0.5221238938053098,
+      "by_label": {
+        "contradict": {
+          "count": 71,
+          "f1": 0.40310077519379844,
+          "precision": 0.4482758620689655,
+          "recall": 0.36619718309859156
+        },
+        "insufficient": {
+          "count": 130,
+          "f1": 0.6158357771260997,
+          "precision": 0.4976303317535545,
+          "recall": 0.8076923076923077
+        },
+        "support": {
+          "count": 138,
+          "f1": 0.4423076923076923,
+          "precision": 0.6571428571428571,
+          "recall": 0.3333333333333333
+        }
+      },
+      "confusion": {
+        "contradict": {
+          "contradict": 26,
+          "insufficient": 34,
+          "support": 11
+        },
+        "insufficient": {
+          "contradict": 12,
+          "insufficient": 105,
+          "support": 13
+        },
+        "support": {
+          "contradict": 20,
+          "insufficient": 72,
+          "support": 46
+        }
+      },
+      "macro_f1": 0.4870814148758635,
+      "support_gate": {
+        "accepted": 70,
+        "coverage": 0.20648967551622419,
+        "false_accept_fraction": 0.34285714285714286,
+        "false_accepts": 24,
+        "false_accepts_contradicted": 11,
+        "false_accepts_insufficient": 13,
+        "supported_retention": 0.3333333333333333
+      }
+    }
+  },
+  "nli_files_sha256": {
+    "config.json": "885d0dceae8fa5c136da9209121ec9eb11160488e840de3bc1f29353674e5712",
+    "model.onnx": "03c2221313dc0c3eac9cec1f746d1319d33f2c2901fcce1c0f08f4daac9b6dae",
+    "tokenizer.json": "5124ef2ead1a10a717703bc436de7f353da76d6340e4587719b42b1693707964"
+  },
+  "protocol": "medqa-forge-scifact-v1",
+  "scikit_learn": "1.8.0",
+  "train_count": 609,
+  "withholding_diagnostic": {
+    "claim_context": {
+      "annotated_support_cases": 138,
+      "original_support_predictions_retained_after_removal": 61,
+      "support_predictions_after_rationale_removal": 61,
+      "support_predictions_original": 85,
+      "support_predictions_with_empty_context": 0
+    },
+    "claim_only": {
+      "annotated_support_cases": 138,
+      "original_support_predictions_retained_after_removal": 80,
+      "support_predictions_after_rationale_removal": 80,
+      "support_predictions_original": 80,
+      "support_predictions_with_empty_context": 80
+    },
+    "context_presence": {
+      "annotated_support_cases": 138,
+      "original_support_predictions_retained_after_removal": 138,
+      "support_predictions_after_rationale_removal": 138,
+      "support_predictions_original": 138,
+      "support_predictions_with_empty_context": 0
+    },
+    "deberta_nli": {
+      "annotated_support_cases": 138,
+      "original_support_predictions_retained_after_removal": 16,
+      "support_predictions_after_rationale_removal": 18,
+      "support_predictions_original": 46,
+      "support_predictions_with_empty_context": 0
+    }
+  }
+}

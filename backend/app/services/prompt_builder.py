@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from hashlib import sha256
 from typing import Any
 
 from app.utils.prompts import build_prompt, build_rag_prompt
@@ -64,6 +65,23 @@ def format_evidence_for_prompt(chunks: list[Any]) -> str:
             f"{chunk.content}"
         )
     return "\n\n".join(parts)
+
+
+def _retrieved_context(chunks: list[Any], rendered: str) -> dict:
+    """Record the passages and order presented to the generator."""
+    return {
+        "version": 1,
+        "verification_status": "retrieval_only",
+        "context_sha256": sha256(rendered.encode("utf-8")).hexdigest(),
+        "passages": [
+            {
+                "chunk_id": chunk.chunk_id,
+                "source_id": chunk.source_id,
+                "chunk_sha256": sha256(chunk.content.encode("utf-8")).hexdigest(),
+            }
+            for chunk in chunks
+        ],
+    }
 
 
 # ── Prompt builders ────────────────────────────────────────────────────
@@ -192,6 +210,7 @@ def prepare_rag_prompts(
                     "primary_chunk_id": primary_chunk.chunk_id,
                     "citation_metadata": retrieval.citation_metadata(),
                     "citation_ids": retrieval.citation_ids(),
+                    "retrieved_context": _retrieved_context(chunks_for_prompt, evidence_text),
                     "query_term": term,
                     "retrieval_scores": [c.score for c in retrieval.chunks],
                     "source_filename": primary_chunk.source_filename,
