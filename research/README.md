@@ -2,6 +2,25 @@
 
 Can a verifier distinguish supported, contradicted and insufficient claims when it sees the cited scientific abstract? The pilot compares a context-presence sanity baseline, a claim-only lexical control, a claim-and-context lexical classifier, and an optional pretrained DeBERTa natural-language inference model. The production generation path records retrieval provenance. The pilot remains an offline evaluation.
 
+## Audit stored generated drafts
+
+Run the context audit against the application's SQLite database from the repository root. Supply the project ID from the application. Python 3.11+ is sufficient for this command, with no additional packages required.
+
+```bash
+PYTHONPATH=backend python -m research.audit_drafts \
+  --database backend/data/medqa.db --project-id YOUR_PROJECT_ID
+```
+
+Use the actual path to your deployment's database. The command opens it read-only and holds a single read transaction while checking the project's drafts. Each manifest is checked against the stored chunk contents, owning source, filename and passage order using the generator's evidence formatter. A missing or modified passage fails the audit. Legacy rows without a manifest and malformed manifests remain in the report's denominator. The report identifies each draft by its database ID and a hash of its current question and answer. It omits question text, answer text and evidence text.
+
+Exit code 0 means every draft's retrieval context matches the stored sources. Code 1 means at least one draft requires attention, or the project has no drafts. Code 2 indicates an input or database error. A matching context establishes that the stored passages can reproduce the recorded context. Factual support for the answer still requires a separate claim-level assessment. Editing a draft changes its revision hash while its context may continue to match. Historical rows cannot recover missing generation-time manifests through this audit.
+
+The audit has been verified with temporary database fixtures using manifests produced by the current generator, including rotated Unicode passages, changed text and filenames, missing and cross-project sources, malformed metadata, and CLI exit codes. Real generated datasets still require access to the deployment database. Reproduce the fixture checks with the command below.
+
+```bash
+PYTHONPATH=backend python -m unittest research.tests.test_audit_drafts -v
+```
+
 ## Reproduce
 
 From the repository root with Python 3.12 on x86-64 with AVX2:
