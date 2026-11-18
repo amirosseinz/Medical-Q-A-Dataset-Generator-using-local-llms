@@ -21,6 +21,20 @@ The audit has been verified with temporary database fixtures using manifests pro
 PYTHONPATH=backend python -m unittest research.tests.test_audit_drafts -v
 ```
 
+## Export splits by cited source
+
+The export endpoint accepts `split_strategy: "source"` to keep every recorded source ID in a single split. A row citing sources A and B connects their other rows into one indivisible group. The service uses all source IDs in `retrieved_context.passages`, with `citations` as a fallback for older rows without a context manifest. Missing or incomplete source IDs return HTTP 422. This groups recorded provenance and does not establish factual support for a draft.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/projects/YOUR_PROJECT_ID/export \
+  -H 'Content-Type: application/json' \
+  -d '{"format":"jsonl","split_strategy":"source","train_split":0.8,"val_split":0.1,"test_split":0.1}'
+```
+
+The response includes `split_strategy` and `split_counts` alongside the download filenames. Fractions are approximate because source groups remain intact. A large connected group can leave validation or test empty, so inspect the returned counts before evaluating. The API sorts rows by ID and uses a fixed local seed for reproducible assignment on the same candidate set. The default `row` strategy retains the existing row-shuffle behaviour. Source grouping currently requires this API option.
+
+Different source IDs can refer to the same article, and overlapping text can appear in different documents. Canonical DOI/PMID resolution and duplicate-text checks are still needed for a study claiming generalisation to unseen articles. Split creation alone does not establish separation from a model's pretraining data.
+
 ## Reproduce
 
 From the repository root with Python 3.12 on x86-64 with AVX2:

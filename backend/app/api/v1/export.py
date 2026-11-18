@@ -41,7 +41,7 @@ def export_project(
     if request.min_quality_score is not None:
         query = query.filter(QAPair.quality_score >= request.min_quality_score)
 
-    qa_records = query.all()
+    qa_records = query.order_by(QAPair.id).all()
     if not qa_records:
         raise HTTPException(status_code=404, detail="No Q&A pairs match the filter criteria")
 
@@ -66,7 +66,13 @@ def export_project(
 
     # Handle train/val/test split
     if request.train_split < 1.0:
-        splits = split_dataset(pairs, request.train_split, request.val_split, request.test_split)
+        try:
+            splits = split_dataset(
+                pairs, request.train_split, request.val_split, request.test_split,
+                split_strategy=request.split_strategy,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
         files = {}
         for split_name, split_pairs in splits.items():
             if split_pairs:
@@ -77,6 +83,8 @@ def export_project(
             "message": f"Exported {len(pairs)} pairs with train/val/test split",
             "files": files,
             "total_pairs": len(pairs),
+            "split_strategy": request.split_strategy,
+            "split_counts": {name: len(rows) for name, rows in splits.items()},
             "download_base": f"/api/v1/projects/{project_id}/download",
         }
     else:

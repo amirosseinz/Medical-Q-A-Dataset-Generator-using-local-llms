@@ -1,5 +1,6 @@
 """Q&A pair schemas for CRUD, search, filtering, and batch operations."""
 from datetime import datetime
+from typing import Literal
 from pydantic import BaseModel, Field
 from app.schemas.common import SourceType, ValidationStatus
 
@@ -87,3 +88,4 @@ class ExportRequest(BaseModel):
     val_split: float = Field(default=0.1, ge=0.0, le=1.0)
     test_split: float = Field(default=0.1, ge=0.0, le=1.0)
     include_metadata: bool = False
+    split_strategy: Literal["row", "source"] = "row"

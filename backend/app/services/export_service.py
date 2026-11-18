@@ -13,6 +13,7 @@ import csv
 import io
 import json
 import logging
+import math
 import random
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,11 +74,15 @@ def split_dataset(
     val: float = 0.1,
     test: float = 0.1,
     seed: int = 42,
+    split_strategy: str = "row",
 ) -> dict[str, list[QAPairForExport]]:
     """Split pairs into train/val/test sets."""
+    if split_strategy == "source":
+        return split_by_source(pairs, train, val, test, seed)
+    if split_strategy != "row":
+        raise ValueError("Unknown split strategy.")
     shuffled = list(pairs)
-    random.seed(seed)
-    random.shuffle(shuffled)
+    random.Random(seed).shuffle(shuffled)
     n = len(shuffled)
     n_train = int(n * train)
     n_val = int(n * val)
@@ -86,6 +91,55 @@ def split_dataset(
         "val": shuffled[n_train : n_train + n_val],
         "test": shuffled[n_train + n_val :],
     }
+
+
+def split_by_source(
+    pairs: list[QAPairForExport], train: float, val: float, test: float, seed: int,
+) -> dict[str, list[QAPairForExport]]:
+    """Keep connected cited-source components intact, including multi-source rows."""
+    fractions = {"train": train, "val": val, "test": test}
+    if any(not math.isfinite(value) or not 0 <= value <= 1 for value in fractions.values()):
+        raise ValueError("Split fractions must be finite values between zero and one.")
+    if not math.isclose(sum(fractions.values()), 1.0, abs_tol=1e-9):
+        raise ValueError("Split fractions must sum to one.")
+
+    parents = list(range(len(pairs)))
+
+    def root(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    owners = {}
+    for index, pair in enumerate(pairs):
+        metadata = pair.metadata or {}
+        context = metadata.get("retrieved_context")
+        passages = context.get("passages") if isinstance(context, dict) else metadata.get("citations")
+        if not isinstance(passages, list) or not passages:
+            raise ValueError(f"Row {index + 1} requires complete cited source IDs for source splitting.")
+        for passage in passages:
+            source_id = passage.get("source_id") if isinstance(passage, dict) else None
+            if not isinstance(source_id, str) or not source_id.strip():
+                raise ValueError(f"Row {index + 1} has an incomplete cited source ID.")
+            if source_id in owners:
+                parents[root(index)] = root(owners[source_id])
+            else:
+                owners[source_id] = index
+
+    components = {}
+    for index, pair in enumerate(pairs):
+        components.setdefault(root(index), []).append(pair)
+    groups = list(components.values())
+    random.Random(seed).shuffle(groups)
+    # Place large components first. Randomisation breaks ties reproducibly.
+    groups.sort(key=len, reverse=True)
+    splits = {name: [] for name in fractions}
+    targets = {name: len(pairs) * fraction for name, fraction in fractions.items() if fraction > 0}
+    for group in groups:
+        selected = max(targets, key=lambda name: targets[name] - len(splits[name]))
+        splits[selected].extend(group)
+    return splits
 
 
 # ── Format converters ──────────────────────────────────────────────────
