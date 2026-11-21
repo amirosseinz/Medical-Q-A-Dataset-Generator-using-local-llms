@@ -181,6 +181,7 @@ export interface ExportRequest {
   val_split: number;
   test_split: number;
   include_metadata?: boolean;
+  split_strategy?: 'row' | 'source';
 }
 
 // ---- Ollama ----

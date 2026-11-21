@@ -31,9 +31,11 @@ curl -X POST http://localhost:8000/api/v1/projects/YOUR_PROJECT_ID/export \
   -d '{"format":"jsonl","split_strategy":"source","train_split":0.8,"val_split":0.1,"test_split":0.1}'
 ```
 
-The response includes `split_strategy` and `split_counts` alongside the download filenames. Fractions are approximate because source groups remain intact. A large connected group can leave validation or test empty, so inspect the returned counts before evaluating. The API sorts rows by ID and uses a fixed local seed for reproducible assignment on the same candidate set. The default `row` strategy retains the existing row-shuffle behaviour. Source grouping currently requires this API option.
+The response includes `split_strategy` and `split_counts` alongside the download filenames. Fractions are approximate because source groups remain intact. A large connected group can leave validation or test empty, so inspect the returned counts before evaluating. The API sorts rows by ID and uses a fixed local seed for reproducible assignment on the same candidate set. The default `row` strategy retains the existing row-shuffle behaviour. In the project's Export tab, select **Keep cited sources together** to use this option for project and generation exports. A successful download reports the actual split counts. A failed split download reports an error and identifies the file to retry.
 
 Different source IDs can refer to the same article, and overlapping text can appear in different documents. Canonical DOI/PMID resolution and duplicate-text checks are still needed for a study claiming generalisation to unseen articles. Split creation alone does not establish separation from a model's pretraining data.
+
+The browser client's export regression tests run with `node --test tests/export-api.test.mjs` from `frontend/` after installing its dependencies. They cover source strategy submission, actual split counts, failed downloads, missing-source errors, empty file lists and single-file exports.
 
 ## Reproduce
 

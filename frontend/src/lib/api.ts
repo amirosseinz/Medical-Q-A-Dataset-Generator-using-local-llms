@@ -180,6 +180,7 @@ export const exportApi = {
       files?: Record<string, string>;
       download_base?: string;
       total_pairs: number;
+      split_counts?: Record<string, number>;
     }>(`${BASE}/projects/${projectId}/export`, {
       method: 'POST',
       body: JSON.stringify(config),
@@ -198,11 +199,11 @@ export const exportApi = {
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
-    } else if (exportResult.files && exportResult.download_base) {
+    } else if (exportResult.files && Object.keys(exportResult.files).length > 0 && exportResult.download_base) {
       // Split export — download each file
       for (const [, fname] of Object.entries(exportResult.files)) {
         const res = await fetch(`${exportResult.download_base}/${fname}`);
-        if (!res.ok) continue;
+        if (!res.ok) throw new Error(`Failed to download ${fname}. Retry the export to download all splits.`);
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -214,6 +215,7 @@ export const exportApi = {
     } else {
       throw new Error('Export succeeded but no download URL returned');
     }
+    return exportResult;
   },
 };
 

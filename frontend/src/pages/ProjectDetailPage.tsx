@@ -31,6 +31,7 @@ import {
   useGenerationProviders,
 } from '@/hooks/use-api';
 import { useJobCompletionWatcher } from '@/hooks/use-job-watcher';
+import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -70,6 +71,7 @@ import type { ExportFormat, GenerationJob } from '@/types';
 export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
+  const { toast } = useToast();
 
   const { data: project, isLoading: projectLoading } = useProject(projectId!);
   const { data: sources } = useSources(projectId!);
@@ -115,6 +117,7 @@ export default function ProjectDetailPage() {
 
   // Export state
   const [exportFormat, setExportFormat] = useState<ExportFormat>('csv');
+  const [splitStrategy, setSplitStrategy] = useState<'row' | 'source'>('row');
   const [exporting, setExporting] = useState(false);
   const [exportingJobId, setExportingJobId] = useState<string | null>(null);
   const [trainSplit, setTrainSplit] = useState(80);
@@ -172,7 +175,7 @@ export default function ProjectDetailPage() {
     if (!projectId) return;
     setExporting(true);
     try {
-      await exportApi.download(projectId, {
+      const result = await exportApi.download(projectId, {
         format: exportFormat,
         validation_statuses: undefined,
         min_quality_score: 0,
@@ -180,6 +183,19 @@ export default function ProjectDetailPage() {
         val_split: valSplit / 100,
         test_split: testSplit / 100,
         include_metadata: false,
+        split_strategy: splitStrategy,
+      });
+      toast({
+        title: 'Export downloaded',
+        description: result.split_counts
+          ? Object.entries(result.split_counts).map(([name, count]) => `${name}: ${count}`).join(' · ')
+          : `${result.total_pairs} pairs`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Export failed',
+        description: error instanceof Error ? error.message : 'Export could not be completed.',
+        variant: 'destructive',
       });
     } finally {
       setExporting(false);
@@ -190,7 +206,7 @@ export default function ProjectDetailPage() {
     if (!projectId) return;
     setExportingJobId(jobId);
     try {
-      await exportApi.download(projectId, {
+      const result = await exportApi.download(projectId, {
         format,
         generation_job_id: jobId,
         validation_statuses: undefined,
@@ -199,6 +215,19 @@ export default function ProjectDetailPage() {
         val_split: valSplit / 100,
         test_split: testSplit / 100,
         include_metadata: false,
+        split_strategy: splitStrategy,
+      });
+      toast({
+        title: 'Export downloaded',
+        description: result.split_counts
+          ? Object.entries(result.split_counts).map(([name, count]) => `${name}: ${count}`).join(' · ')
+          : `${result.total_pairs} pairs`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Export failed',
+        description: error instanceof Error ? error.message : 'Export could not be completed.',
+        variant: 'destructive',
       });
     } finally {
       setExportingJobId(null);
@@ -469,6 +498,23 @@ export default function ProjectDetailPage() {
               <Separator />
               <div className="space-y-3">
                 <Label className="text-sm font-medium">Train / Validation / Test Split</Label>
+                <div className="space-y-2">
+                  <Label htmlFor="split-strategy">Split method</Label>
+                  <Select value={splitStrategy} onValueChange={(value) => setSplitStrategy(value as 'row' | 'source')}>
+                    <SelectTrigger id="split-strategy" className="w-60">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="row">Shuffle individual pairs</SelectItem>
+                      <SelectItem value="source">Keep cited sources together</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {splitStrategy === 'source' && (
+                    <p className="text-xs text-muted-foreground">
+                      Requires source IDs for every pair. Groups stay together, so actual split sizes may differ or be empty.
+                    </p>
+                  )}
+                </div>
                 <div className="flex items-center gap-2 flex-wrap">
                   {[
                     { label: '80/10/10', t: 80, v: 10, te: 10 },
@@ -527,7 +573,7 @@ export default function ProjectDetailPage() {
                     Splits must sum to 100% (currently {trainSplit + valSplit + testSplit}%)
                   </p>
                 )}
-                {stats?.total != null && stats.total > 0 && trainSplit + valSplit + testSplit === 100 && (
+                {splitStrategy === 'row' && stats?.total != null && stats.total > 0 && trainSplit + valSplit + testSplit === 100 && (
                   <p className="text-xs text-muted-foreground">
                     Preview: {Math.round(stats.total * trainSplit / 100)} train
                     {valSplit > 0 && <> · {Math.round(stats.total * valSplit / 100)} val</>}
