@@ -23,6 +23,8 @@ PYTHONPATH=backend python -m unittest research.tests.test_audit_drafts -v
 
 ## Export splits by cited source
 
+Before splitting, evidence-review labels can be summarised against the project's current draft and context revisions using the audit command's optional `--reviews` argument. See the review protocol below.
+
 The export endpoint accepts `split_strategy: "source"` to keep every recorded source ID in a single split. A row citing sources A and B connects their other rows into one indivisible group. The service uses all source IDs in `retrieved_context.passages`, with `citations` as a fallback for older rows without a context manifest. Missing or incomplete source IDs return HTTP 422. This groups recorded provenance and does not establish factual support for a draft.
 
 ```bash
@@ -36,6 +38,25 @@ The response includes `split_strategy` and `split_counts` alongside the download
 Different source IDs can refer to the same article, and overlapping text can appear in different documents. Canonical DOI/PMID resolution and duplicate-text checks are still needed for a study claiming generalisation to unseen articles. Split creation alone does not establish separation from a model's pretraining data.
 
 The browser client's export regression tests run with `node --test tests/export-api.test.mjs` from `frontend/` after installing its dependencies. They cover source strategy submission, actual split counts, failed downloads, missing-source errors, empty file lists and single-file exports.
+
+## Summarise evidence-review labels
+
+First run the draft audit to obtain each row's `qa_pair_id`, `draft_sha256` and, for matching contexts, `context_sha256`. A reviewer assesses every material claim in the question and answer against the recorded evidence. Preserve those three identifiers alongside the adjudicated label in a local JSONL file, with one object per row. Supported means every material claim is supported within its stated population, outcome and uncertainty. Use `contradicted` for a materially contradicted claim, `insufficient` for an unsupported claim or presupposition, and `conflicting` for unresolved opposing evidence. Resolve disagreements into one final label per draft before summarising.
+
+```json
+{"qa_pair_id":"COPY_ROW_ID","draft_sha256":"COPY_64_CHARACTER_DRAFT_HASH","context_sha256":"COPY_64_CHARACTER_CONTEXT_HASH","label":"supported"}
+```
+
+The placeholders above must be replaced with identifiers from the audit. Then run the following command using the actual database and project ID.
+
+```bash
+PYTHONPATH=backend python -m research.audit_drafts \
+  --database backend/data/medqa.db --project-id YOUR_PROJECT_ID --reviews reviews.jsonl
+```
+
+The report adds `review_status` per row and an `evidence_reviews` summary. Coverage uses all project drafts as its denominator. The supported fraction uses only current reviews with matching source contexts. Edited drafts and changed context hashes produce `stale_review`; a context that cannot be verified produces `context_unverified`. Missing labels remain `unreviewed`. Duplicate or unknown row IDs, invalid hashes and unknown labels fail with exit code 2. With `--reviews`, code 0 requires all project drafts to have current supported labels and matching contexts; incomplete or adverse results return code 1. Without `--reviews`, the original source-integrity exit codes apply.
+
+This command validates label alignment and summarises supplied judgments. It does not assign evidence labels or independently validate reviewer judgments. Counts from a selectively reviewed sample describe that sample, and cannot establish the unsupported rate for the whole project. Tests use fictional temporary database fixtures. Real dataset review still requires the deployment database and independent annotations.
 
 ## Reproduce
 
