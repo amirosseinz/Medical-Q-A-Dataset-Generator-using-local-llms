@@ -41,7 +41,20 @@ The browser client's export regression tests run with `node --test tests/export-
 
 ## Summarise evidence-review labels
 
-First run the draft audit to obtain each row's `qa_pair_id`, `draft_sha256` and, for matching contexts, `context_sha256`. A reviewer assesses every material claim in the question and answer against the recorded evidence. Preserve those three identifiers alongside the adjudicated label in a local JSONL file, with one object per row. Supported means every material claim is supported within its stated population, outcome and uncertainty. Use `contradicted` for a materially contradicted claim, `insufficient` for an unsupported claim or presupposition, and `conflicting` for unresolved opposing evidence. Resolve disagreements into one final label per draft before summarising.
+Create a local review packet to inspect the question, answer and exact ordered evidence alongside their revision hashes:
+
+```bash
+mkdir -p data/reviews
+PYTHONPATH=backend python -m research.audit_drafts \
+  --database backend/data/medqa.db --project-id YOUR_PROJECT_ID \
+  --review-packet data/reviews/drafts.jsonl
+```
+
+The JSONL contains one row per draft with a verified context, including `question`, `answer`, `rendered_context`, ordered `passages` with source and chunk IDs, and an initially null `label`. Draft text, evidence and hashes come from the same read-only database transaction. Invalid or missing contexts are excluded from the packet but remain in the audit denominator; the stdout summary reports written and excluded counts and retains the usual audit exit codes. Packet creation refuses existing files and symlinks and uses owner-only permissions on POSIX. The standard stdout report still omits source and draft text.
+
+Review every material claim against the supplied passages and replace each null label with one of the four labels below. The annotated packet can be passed directly to `--reviews`; its additional text fields are ignored by the summariser. Null labels fail validation, so leave incomplete packets out of evaluation until labels are adjudicated, or supply a separate JSONL containing only completed reviews. The packet contains source material: keep it local and access-controlled. The `data/` directory used above is already excluded from git. No review packets or deployment data are included in this repository.
+
+For a minimal annotation file without copied source text, obtain each row's `qa_pair_id`, `draft_sha256` and, for matching contexts, `context_sha256` from the standard audit report. A reviewer assesses every material claim in the question and answer against the recorded evidence. Preserve those three identifiers alongside the adjudicated label in a local JSONL file, with one object per row. Supported means every material claim is supported within its stated population, outcome and uncertainty. Use `contradicted` for a materially contradicted claim, `insufficient` for an unsupported claim or presupposition, and `conflicting` for unresolved opposing evidence. Resolve disagreements into one final label per draft before summarising.
 
 ```json
 {"qa_pair_id":"COPY_ROW_ID","draft_sha256":"COPY_64_CHARACTER_DRAFT_HASH","context_sha256":"COPY_64_CHARACTER_CONTEXT_HASH","label":"supported"}

@@ -207,6 +207,74 @@ class DraftAuditTests(unittest.TestCase):
         self.assertEqual(invoke([{**review, "label": "unknown"}]).returncode, 2)
         self.assertEqual(invoke([review, review]).returncode, 2)
 
+    def packet_cli(self, path):
+        root = Path(__file__).resolve().parents[2]
+        return subprocess.run(
+            [sys.executable, "-m", "research.audit_drafts", "--database", str(self.path),
+             "--project-id", "project", "--review-packet", str(path)], cwd=root,
+            env={**os.environ, "PYTHONPATH": str(root / "backend")}, capture_output=True, text=True,
+        )
+
+    def test_review_packet_preserves_exact_context_order_and_round_trips_labels(self):
+        before = sha256(self.path.read_bytes()).hexdigest()
+        path = self.path.with_name("review.jsonl")
+        process = self.packet_cli(path)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        row = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(row["question"], "Fictional question?")
+        self.assertEqual(row["answer"], "Fictional answer.")
+        self.assertEqual(row["project_id"], "project")
+        self.assertEqual(row["rendered_context"], format_evidence_for_prompt(self.chunks[::-1]))
+        self.assertEqual([passage["chunk_id"] for passage in row["passages"]], ["two", "one"])
+        self.assertEqual(row["passages"][1]["source_filename"], "Study Δ")
+        self.assertEqual(sha256(row["rendered_context"].encode()).hexdigest(), row["context_sha256"])
+        self.assertIsNone(row["label"])
+        with self.assertRaises(ValueError):
+            audit(self.path, "project", [row])
+        report = audit(self.path, "project", [{**row, "label": "supported"}])
+        self.assertEqual(report["evidence_reviews"]["counts"], {"supported": 1})
+        self.assertEqual(before, sha256(self.path.read_bytes()).hexdigest())
+        self.assertNotIn("Fictional", process.stdout)
+        self.assertNotIn("Study Δ", process.stdout)
+        self.assertEqual(json.loads(process.stdout)["review_packet"],
+                         {"written_drafts": 1, "excluded_drafts": 0})
+        if os.name == "posix":
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_review_packet_excludes_unverified_context_without_losing_denominator(self):
+        self.add_draft("legacy", {})
+        changed = deepcopy(self.manifest)
+        changed["context_sha256"] = "0" * 64
+        self.add_draft("changed", {"retrieved_context": changed})
+        self.connection.commit()
+        path = self.path.with_name("review.jsonl")
+        process = self.packet_cli(path)
+        self.assertEqual(process.returncode, 1, process.stderr)
+        report = json.loads(process.stdout)
+        self.assertEqual(report["total_drafts"], 3)
+        self.assertEqual(report["review_packet"], {"written_drafts": 1, "excluded_drafts": 2})
+        self.assertEqual([json.loads(line)["qa_pair_id"] for line in path.read_text().splitlines()],
+                         ["draft"])
+
+    def test_review_packet_refuses_overwrite_and_symlink(self):
+        path = self.path.with_name("existing.jsonl")
+        path.write_text("Existing work", encoding="utf-8")
+        process = self.packet_cli(path)
+        self.assertEqual(process.returncode, 2)
+        self.assertEqual(process.stdout, "")
+        self.assertEqual(path.read_text(), "Existing work")
+        if os.name == "posix":
+            link = path.with_name("link.jsonl")
+            link.symlink_to(path)
+            self.assertEqual(self.packet_cli(link).returncode, 2)
+            self.assertEqual(path.read_text(), "Existing work")
+
+    def test_standard_report_never_includes_review_text(self):
+        report = self.run_audit()
+        self.assertNotIn("review_packet", report)
+        for text in ("Fictional", "Study Δ", self.chunks[0].content, "rendered_context"):
+            self.assertNotIn(text, json.dumps(report, ensure_ascii=False))
+
 
 if __name__ == "__main__":
     unittest.main()

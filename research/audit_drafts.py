@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sqlite3
 from collections import Counter
@@ -39,7 +40,8 @@ def valid_manifest(manifest: object) -> bool:
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
 
 
-def check_context(connection: sqlite3.Connection, project_id: str, metadata: str | None) -> dict:
+def check_context(connection: sqlite3.Connection, project_id: str, metadata: str | None,
+                  *, include_review_text: bool = False) -> dict:
     try:
         data = json.loads(metadata) if metadata is not None else None
     except (TypeError, json.JSONDecodeError):
@@ -67,15 +69,22 @@ def check_context(connection: sqlite3.Connection, project_id: str, metadata: str
         content, filename = chunk
         if digest(content) != passage["chunk_sha256"]:
             changed.append(passage["chunk_id"])
-        chunks.append(SimpleNamespace(source_filename=filename, content=content))
+        chunks.append(SimpleNamespace(source_filename=filename, content=content,
+                                      chunk_id=passage["chunk_id"], source_id=passage["source_id"]))
     if missing:
         return {"status": "missing_source", "missing_chunk_ids": missing, "changed_chunk_ids": changed}
     actual_digest = digest(format_evidence_for_prompt(chunks))
     if changed or actual_digest != manifest["context_sha256"]:
         return {"status": "context_mismatch", "changed_chunk_ids": changed,
                 "assembled_context_matches": actual_digest == manifest["context_sha256"]}
-    return {"status": "context_matches", "passage_count": len(chunks),
-            "context_sha256": actual_digest}
+    result = {"status": "context_matches", "passage_count": len(chunks),
+              "context_sha256": actual_digest}
+    if include_review_text:
+        result["review_text"] = {
+            "rendered_context": format_evidence_for_prompt(chunks),
+            "passages": [vars(chunk) for chunk in chunks],
+        }
+    return result
 
 
 def index_reviews(reviews: list[dict]) -> dict[str, dict]:
@@ -110,7 +119,8 @@ def review_status(row: dict, review: dict | None) -> str:
     return review["label"]
 
 
-def audit(database: Path, project_id: str, reviews: list[dict] | None = None) -> dict:
+def audit(database: Path, project_id: str, reviews: list[dict] | None = None,
+          *, include_review_text: bool = False) -> dict:
     indexed_reviews = index_reviews(reviews) if reviews is not None else None
     # mode=ro also prevents a typo from silently creating an empty database.
     connection = sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
@@ -122,12 +132,20 @@ def audit(database: Path, project_id: str, reviews: list[dict] | None = None) ->
             'SELECT id, question, answer, metadata FROM qa_pairs WHERE project_id = ? ORDER BY id',
             (project_id,),
         )
-        rows = []
+        rows, packet = [], []
         for pair_id, question, answer, metadata in records:
-            result = check_context(connection, project_id, metadata)
+            result = check_context(connection, project_id, metadata,
+                                   include_review_text=include_review_text)
+            review_text = result.pop("review_text", None)
             # Bind the report to the text revision without reproducing the text.
             revision = json.dumps([question, answer], ensure_ascii=False, separators=(",", ":"))
             rows.append({"qa_pair_id": pair_id, "draft_sha256": digest(revision), **result})
+            if review_text is not None:
+                packet.append({
+                    "project_id": project_id, "qa_pair_id": pair_id,
+                    "draft_sha256": digest(revision), "context_sha256": result["context_sha256"],
+                    "question": question, "answer": answer, **review_text, "label": None,
+                })
         report = {
             "protocol": "medqa-draft-context-audit-v1",
             "scope": "stored_retrieval_context_integrity",
@@ -136,6 +154,8 @@ def audit(database: Path, project_id: str, reviews: list[dict] | None = None) ->
             "counts": dict(sorted(Counter(row["status"] for row in rows).items())),
             "rows": rows,
         }
+        if include_review_text:
+            report["review_packet"] = packet
         if indexed_reviews is not None:
             unknown = set(indexed_reviews) - {row["qa_pair_id"] for row in rows}
             if unknown:
@@ -160,13 +180,27 @@ def main() -> int:
     parser.add_argument("--database", required=True, type=Path)
     parser.add_argument("--project-id", required=True)
     parser.add_argument("--reviews", type=Path, help="Optional JSONL of adjudicated evidence-review labels")
+    parser.add_argument("--review-packet", type=Path,
+                        help="Create a new local JSONL containing draft and verified evidence text for review")
     args = parser.parse_args()
     try:
         reviews = None
         if args.reviews is not None:
             reviews = [json.loads(line) for line in args.reviews.read_text(encoding="utf-8").splitlines()
                        if line.strip()]
-        result = audit(args.database, args.project_id, reviews)
+        result = audit(args.database, args.project_id, reviews,
+                       include_review_text=args.review_packet is not None)
+        if args.review_packet is not None:
+            packet = result.pop("review_packet")
+            # Exclusive creation refuses existing paths (including symlinks). The
+            # file contains source text, so restrict access at creation on POSIX.
+            descriptor = os.open(args.review_packet, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+                for row in packet:
+                    output.write(json.dumps(row, ensure_ascii=False) + "\n")
+            result["review_packet"] = {
+                "written_drafts": len(packet), "excluded_drafts": result["total_drafts"] - len(packet),
+            }
     except (sqlite3.Error, ValueError, OSError) as error:
         parser.exit(2, f"Audit failed: {error}\n")
     print(json.dumps(result, indent=2, sort_keys=True))
